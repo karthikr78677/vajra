@@ -1,0 +1,44 @@
+# Advanced M1 Implementation Plan
+
+You are absolutely right. The initial M1 implementation was a foundational skeleton. To handle complex industrial tasks, edge cases, and ensure enterprise-grade stability for the SIH hackathon, we need to significantly upgrade the M1 (Backend) components.
+
+Here is the plan to upgrade M1 to an **Advanced Level**.
+
+## User Review Required
+> [!WARNING]
+> Upgrading to an advanced architecture adds complexity. I will introduce asynchronous programming (`asyncio`, `httpx`), retry mechanisms (`tenacity`), and deep integration with the orchestrator.
+> Please review the proposed changes below and confirm if this aligns with your vision for "advanced".
+
+## Open Questions
+> [!IMPORTANT]
+> 1. **Task Analysis:** Do you want the `Task Analyzer` to use a fast, lightweight LLM call to classify complex user prompts when keyword matching fails, or should we stick to purely advanced text heuristics (to save time/VRAM)?
+> 2. **Streaming:** Do you want the FastAPI backend to support **WebSockets or Server-Sent Events (SSE)** so the Streamlit frontend can display the agent's thoughts in real-time?
+
+## Proposed Changes
+
+### 1. Advanced Model Router (`backend/router.py`)
+We will rewrite the router to be production-ready and resilient.
+- **Asynchronous Execution:** Replace synchronous `requests` with async `httpx` so the FastAPI server doesn't block while waiting for Ollama to generate text.
+- **Retry & Fallback Logic:** Use the `tenacity` library to implement exponential backoff retries. If Ollama times out or a model crashes, it will automatically retry or gracefully fail.
+- **Model Warmup/Preloading:** Add logic to send an empty "keep-alive" request to Ollama to pre-load a model into VRAM before the agent starts its heavy work.
+
+### 2. Advanced Task Analysis (`backend/task_analysis.py`)
+We will upgrade the task classifier to handle edge cases and ambiguous situations.
+- **Hybrid Classification:** 
+  1. *Level 1 (Fast):* Regex and extension heuristics (what we have now, but expanded).
+  2. *Level 2 (Deep):* If the prompt is ambiguous, we will inject a small meta-prompt into the reasoning model to ask *it* to classify the user's intent.
+- **Entity Extraction:** The analyzer will also extract metadata upfront (e.g., "Is this a highly urgent task?", "Which specific files are referenced?").
+
+### 3. Advanced FastAPI Entrypoint (`backend/main.py`)
+We will upgrade the server to handle complex agent orchestration natively.
+- **Full Orchestrator Integration:** Replace the current "stubbed" `/process` endpoint with actual async calls to the `AgentOrchestrator` (from M4).
+- **Background Tasks:** Allow extremely long-running tasks (like parsing a 100-page PDF) to be spawned as background tasks so the API doesn't time out.
+- **Global Exception Handling:** Add custom middleware to catch and format API errors so the Streamlit UI always receives clean, parseable JSON even if the backend crashes.
+
+### 4. Advanced Schemas (`backend/schemas.py`)
+- Add fields for `confidence_score`, `execution_time_ms`, and `fallback_triggered` to give the UI deep insights into *how* the backend routed the task.
+
+## Verification Plan
+1. Send a highly ambiguous prompt (e.g., "Look at this blueprint and write a script to calculate the load") and verify the hybrid task analyzer correctly identifies a multi-step VISION + CODING intent.
+2. Force an Ollama timeout and verify the `tenacity` retry logic kicks in instead of returning a 500 server error.
+3. Verify that the `/process` endpoint fully runs the M4 Agent Orchestrator and returns a complete, real response.

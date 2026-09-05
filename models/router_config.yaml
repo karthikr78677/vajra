@@ -1,0 +1,19 @@
+models:
+  reasoning:
+    name: "qwen2.5:3b"
+    type: "chat"
+    description: "General reasoning, drafting, and tool calling."
+  coding:
+    name: "qwen2.5-coder:1.5b"
+    type: "chat"
+    description: "Code generation and sandbox execution."
+  vision:
+    name: "moondream:latest"
+    type: "vision"
+    description: "Image understanding and OCR fallback."
+  embedding:
+    name: "nomic-embed-text:latest"
+    type: "embedding"
+    description: "Local knowledge base embeddings."
+  
+ollama_base_url: "http://localhost:11434"

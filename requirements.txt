@@ -1,0 +1,30 @@
+# Backend & API
+fastapi>=0.100.0
+uvicorn>=0.23.0
+pydantic>=2.0.0
+requests>=2.31.0
+pyyaml>=6.0
+
+# Network & Monitoring (Air-gap proof)
+psutil>=5.9.5
+
+# Preprocessing & OCR
+pymupdf>=1.23.4
+pytesseract>=0.3.10
+
+# Knowledge Base & Embeddings
+chromadb>=0.4.15
+sentence-transformers>=2.2.2
+
+# Document Generation
+python-docx>=1.0.1
+openpyxl>=3.1.2
+python-pptx>=0.6.22
+
+# Frontend
+streamlit>=1.27.0
+
+# Advanced Backend Features
+httpx>=0.25.0
+tenacity>=8.2.3
+sse-starlette>=1.6.5

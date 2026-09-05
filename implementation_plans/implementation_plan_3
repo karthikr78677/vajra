@@ -1,0 +1,34 @@
+# Advanced M4 Implementation Plan
+
+Just like M1, we can upgrade Module 4 (Agents & Tools) to be significantly more robust and resilient. Small local models (like `qwen2.5:1.5b` and `3b`) often struggle with perfect JSON formatting or might fall into repetitive error loops. An advanced orchestrator and toolset will handle these issues gracefully.
+
+Here is the plan to upgrade M4 to an **Advanced Level**.
+
+## User Review Required
+> [!WARNING]
+> These changes will add strict validation to the agent loop. I will add JSON extraction/repair logic and path traversal security. Please review the open questions to ensure this aligns with your exact needs.
+
+## Open Questions
+> [!IMPORTANT]
+> 1. **Context Window Protection:** If the agent writes a Python script that outputs 100,000 lines of text (which would crash the LLM's memory), do you want the `sandbox_exec` tool to automatically truncate the output to the last ~500 lines?
+> 2. **Security:** Do you want the `file_tool` to strictly block path traversal (e.g., preventing the agent from reading/writing files outside of the `vajra/` directory)?
+
+## Proposed Changes
+
+### 1. Advanced Agent Orchestrator (`agents/orchestrator.py`)
+- **Robust JSON Extraction:** Small models frequently wrap JSON in markdown blocks (````json { ... } ````) or include conversational filler before the JSON. I will implement a regex-based extractor that reliably finds and parses the JSON block from anywhere in the response.
+- **Error Loop Breaking:** If the model makes the exact same invalid tool call 2 times in a row, the orchestrator will detect the loop and inject a strict "System Intervention" prompt to force the model to change its approach.
+- **Streaming Hooks:** I will add hooks so the orchestrator can utilize the `chat_stream_async` feature from M1, allowing us to yield the agent's "Thought" process to the frontend in real-time before the tool actually executes.
+
+### 2. Advanced Sandbox Executor (`tools/sandbox_exec.py`)
+- **Output Truncation:** If a generated script prints too much data, we will truncate it (e.g., keeping the first 100 lines and last 100 lines) so the LLM doesn't get overwhelmed by massive console logs.
+- **Enhanced Error Capture:** We will capture syntax errors and tracebacks cleanly and present them to the LLM in a structured format so it can easily debug its own code.
+
+### 3. Advanced File Tools (`tools/file_tool.py`)
+- **Path Traversal Prevention:** Implement security checks to strictly lock file reading/writing to the allowed workspace directory (e.g., the current project folder). Attempts to access `C:\Windows\` or `../../` will return a controlled error to the agent instead of crashing.
+- **File Size Limits:** Prevent the agent from accidentally trying to read massive multi-gigabyte binary files into the context window.
+
+## Verification Plan
+1. Send a prompt that intentionally triggers a massive Python output loop and verify that `sandbox_exec` truncates it safely.
+2. Ask the agent to read a system file outside the workspace and verify `file_tool` blocks it.
+3. Simulate a badly formatted JSON response from the model and verify the orchestrator successfully extracts and parses it.

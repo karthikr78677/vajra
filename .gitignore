@@ -1,0 +1,101 @@
+# ====================
+# Python
+# ====================
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ====================
+# Virtual Environments
+# ====================
+.venv/
+venv/
+env/
+ENV/
+.env
+
+# ====================
+# Environment & Secrets
+# ====================
+.env
+.env.local
+configs/.env
+*.secret
+
+# ====================
+# Dependency Lock Files (uv)
+# ====================
+uv.lock
+
+# ====================
+# Jupyter Notebooks
+# ====================
+.ipynb_checkpoints/
+*.ipynb
+
+# ====================
+# Data Directories (no real data in repo)
+# ====================
+data/sample_scanned_reports/*
+data/sample_images/*
+data/sample_sops/*
+# Keep the placeholder .gitkeep files
+!data/sample_scanned_reports/.gitkeep
+!data/sample_images/.gitkeep
+!data/sample_sops/.gitkeep
+
+# ====================
+# ChromaDB (Vector DB - local persistence)
+# ====================
+knowledge_base/chroma_db/
+*.chroma
+
+# ====================
+# Outputs & Generated Files
+# ====================
+outputs/
+*.docx
+*.xlsx
+*.pptx
+*.pdf
+*.log
+
+# ====================
+# OS Files
+# ====================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ====================
+# IDE & Editor
+# ====================
+.vscode/
+.idea/
+*.swp
+*.swo
+*.suo
+
+# ====================
+# Testing & Coverage
+# ====================
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# ====================
+# Ollama model cache (never commit model weights)
+# ====================
+*.gguf
+*.bin
+*.safetensors
+models/*.gguf
