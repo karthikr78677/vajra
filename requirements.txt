@@ -11,6 +11,8 @@ psutil>=5.9.5
 # Preprocessing & OCR
 pymupdf>=1.23.4
 pytesseract>=0.3.10
+Pillow>=10.0.0
+python-dotenv>=1.0.0
 
 # Knowledge Base & Embeddings
 chromadb>=0.4.15
