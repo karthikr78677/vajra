@@ -1,7 +1,6 @@
 """
-Production-grade unified document text extraction tool.
-Wraps PDF parsing (with OCR fallback) and direct image OCR
-into a single agent-callable function.
+Production-grade unified document text extraction and image analysis tool.
+Wraps PDF parsing, OCR fallback, direct image OCR, and VLM image analysis.
 """
 
 import logging
@@ -9,6 +8,7 @@ from pathlib import Path
 
 from ocr.engine import extract_text_from_image
 from preprocessing.parser import extract_text_from_pdf, get_pdf_metadata
+from vision.analyzer import analyze_image as run_image_analysis
 
 logger = logging.getLogger(__name__)
 
@@ -80,3 +80,8 @@ def get_document_info(file_path: str) -> str:
         f"Created    : {meta.get('creationDate') or 'N/A'}",
     ]
     return "\n".join(lines)
+
+
+def analyze_image(file_path: str, question: str = "") -> str:
+    """Analyze a photo, drawing, or P&ID schematic using the local vision model."""
+    return run_image_analysis(image_path=file_path, prompt=question)

@@ -7,7 +7,7 @@ from backend.router import ModelRouter
 from tools.file_tool import read_file, write_file, delete_file
 from tools.calculator_tool import calculate
 from tools.sandbox_exec import execute_code
-from tools.vision_tool import extract_text, get_document_info
+from tools.vision_tool import extract_text, get_document_info, analyze_image
 from agents.permission_manager import permission_manager
 
 logger = logging.getLogger(__name__)
@@ -24,6 +24,7 @@ Available tools:
 5. "execute_code": {"code": "<code string>", "interpreter": "<python|node|bash>"} - Runs code in a sandbox.
 6. "extract_text": {"filepath": "<path>", "lang": "eng"} - Extracts text from a PDF or image (supports OCR on scanned PDFs).
 7. "get_document_info": {"filepath": "<path>"} - Returns metadata (title, author, page count) of a PDF.
+8. "analyze_image": {"filepath": "<path>", "question": "<question>"} - Analyzes a photo, schematic, or engineering drawing.
 
 If you have the final answer or deliverable ready, use the tool "final_answer": {"text": "<your response>"}.
 If a tool returns PERMISSION_REQUIRED, immediately use final_answer to ask the user for approval.
@@ -75,6 +76,8 @@ class AgentOrchestrator:
                 return extract_text(tool_input.get("filepath", ""), tool_input.get("lang", "eng"))
             elif tool_name == "get_document_info":
                 return get_document_info(tool_input.get("filepath", ""))
+            elif tool_name == "analyze_image":
+                return analyze_image(tool_input.get("filepath", ""), tool_input.get("question", ""))
             else:
                 return f"Error: Unknown tool {tool_name}"
         except Exception as e:
