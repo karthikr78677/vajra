@@ -14,8 +14,13 @@ import {
   ShieldCheck, 
   Database,
   Eye,
-  Check
+  Check,
+  AlertTriangle,
+  Loader2
 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { api } from './api';
 
 // Knowledge Base Documents in ChromaDB (On-Premise)
 const INITIAL_DATABASE_DOCS = [
@@ -240,14 +245,52 @@ Verification Result: PASS (Margin: +0.22 bar)`}
 export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [currentView, setCurrentView] = useState('landing'); // 'landing' (Screen 1) or 'active' (Screen 2)
+  const [conversations, setConversations] = useState(CONVERSATIONS);
   const [activeChatId, setActiveChatId] = useState(null);
   const [promptText, setPromptText] = useState('');
   const [attachedFile, setAttachedFile] = useState(null);
   const [activePopoverNode, setActivePopoverNode] = useState(null);
   const [databaseDocs, setDatabaseDocs] = useState(INITIAL_DATABASE_DOCS);
   
+  // Permission handling state
+  const [pendingPermission, setPendingPermission] = useState(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  
   const fileInputRef = useRef(null);
   const dbInputRef = useRef(null);
+
+  // Poll for pending permissions
+  useEffect(() => {
+    let interval;
+    if (isProcessing) {
+      interval = setInterval(async () => {
+        try {
+          const res = await api.getPendingPermissions();
+          if (res.pending && Object.keys(res.pending).length > 0) {
+            const taskId = Object.keys(res.pending)[0];
+            setPendingPermission({ id: taskId, ...res.pending[taskId] });
+          } else {
+            setPendingPermission(null);
+          }
+        } catch (e) {
+          console.error("Failed to poll permissions", e);
+        }
+      }, 1500);
+    } else {
+      setPendingPermission(null);
+    }
+    return () => clearInterval(interval);
+  }, [isProcessing]);
+
+  const handleResolvePermission = async (approved) => {
+    if (!pendingPermission) return;
+    try {
+      await api.resolvePermission(pendingPermission.id, approved);
+      setPendingPermission(null);
+    } catch (e) {
+      alert("Failed to resolve permission: " + e.message);
+    }
+  };
 
   // Switch to Screen 2 (Active Conversation)
   const handleSelectConversation = (chatId) => {
@@ -266,15 +309,68 @@ export default function App() {
   };
 
   // Submit Prompt
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e?.preventDefault();
     if (!promptText.trim() && !attachedFile) return;
 
-    // Route to CDU-102 scenario or valve-dp
-    const targetChatId = promptText.toLowerCase().includes('valve') ? 'valve-dp' : 
-                         attachedFile?.name.includes('png') ? 'pid-flare' : 'cdu-102';
-    
-    handleSelectConversation(targetChatId);
+    const newChatId = `chat-${Date.now()}`;
+    const newChat = {
+      id: newChatId,
+      title: promptText.slice(0, 30) + '...',
+      query: promptText,
+      file: attachedFile,
+      activeStage: 0,
+      nodes: [],
+      prose: <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Loader2 className="animate-spin" size={16}/> Processing with Sovereign AI...</div>,
+      deliverable: null
+    };
+
+    setConversations(prev => ({ ...prev, [newChatId]: newChat }));
+    handleSelectConversation(newChatId);
+    setPromptText('');
+    setIsProcessing(true);
+
+    try {
+      // For now, we don't upload the file, just send the query and file names
+      const filePaths = attachedFile ? [attachedFile.name] : [];
+      const result = await api.processTask(newChat.query, filePaths);
+      
+      setConversations(prev => ({
+        ...prev,
+        [newChatId]: {
+          ...prev[newChatId],
+          activeStage: result.agent_trace.length,
+          nodes: result.agent_trace.map((step, idx) => ({
+            id: `step-${idx}`,
+            label: step.action,
+            model: 'Sovereign Engine',
+            reason: step.thought + " \n\nOutput: " + step.observation
+          })),
+          prose: (
+            <div className="react-markdown">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {result.final_output}
+              </ReactMarkdown>
+            </div>
+          ),
+          deliverable: result.generated_files?.length > 0 ? {
+            name: result.generated_files[0],
+            size: 'N/A',
+            type: result.generated_files[0].split('.').pop()
+          } : null
+        }
+      }));
+    } catch (e) {
+      setConversations(prev => ({
+        ...prev,
+        [newChatId]: {
+          ...prev[newChatId],
+          prose: <p style={{ color: 'var(--danger-red)' }}>Error processing task: {e.response?.data?.detail || e.message}</p>
+        }
+      }));
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   // Upload to Knowledge Base Database
@@ -306,10 +402,38 @@ export default function App() {
     a.click();
   };
 
-  const activeChat = CONVERSATIONS[activeChatId || 'cdu-102'];
+  const activeChat = conversations[activeChatId];
 
   return (
     <div className="app-shell">
+      {/* Permission Modal Overlay */}
+      {pendingPermission && (
+        <div className="permission-modal-overlay">
+          <div className="permission-modal">
+            <div className="permission-modal-header">
+              <ShieldCheck size={20} color="var(--warning-amber)" />
+              <h3>Action Requires Approval</h3>
+            </div>
+            <div className="permission-modal-body">
+              <p>The agent is requesting permission to <strong>{pendingPermission.action}</strong>.</p>
+              {pendingPermission.details && (
+                <div className="prose-code-block" style={{ marginTop: 10, fontSize: '0.85rem' }}>
+                  {pendingPermission.details}
+                </div>
+              )}
+            </div>
+            <div className="permission-modal-actions">
+              <button className="permission-btn deny" onClick={() => handleResolvePermission(false)}>
+                <X size={14} /> Deny
+              </button>
+              <button className="permission-btn allow" onClick={() => handleResolvePermission(true)}>
+                <Check size={14} /> Allow Execution
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Background Interactive Charcoal Grid Blocks (80px x 80px) */}
       <div className="background-grid-container" aria-hidden="true">
         {Array.from({ length: 140 }).map((_, i) => (
@@ -353,7 +477,7 @@ export default function App() {
         )}
 
         <div className="chat-history-list">
-          {Object.values(CONVERSATIONS).map(chat => (
+          {Object.values(conversations).map(chat => (
             <div 
               key={chat.id} 
               className={`chat-item ${currentView === 'active' && activeChatId === chat.id ? 'active' : ''}`}
