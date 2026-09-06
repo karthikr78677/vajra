@@ -3,7 +3,7 @@ import asyncio
 from backend.schemas import UserRequest, TaskType
 from backend.task_analysis import analyze_task_async
 from backend.router import ModelRouter
-from tools.sandbox_exec import execute_python
+from tools.sandbox_exec import execute_code
 from tools.calculator_tool import calculate
 
 logging.basicConfig(level=logging.INFO)
@@ -30,7 +30,7 @@ async def run_tests():
     print(f"Calculator Tool (25 * 4 + 10): {calc_res}")
 
     code = "print('Hello from the sandbox!')\nfor i in range(3): print(i)"
-    sandbox_res = execute_python(code)
+    sandbox_res = execute_code(code, "python")
     print(f"Sandbox Exec Tool Output:\n{sandbox_res}")
 
     print("\n=== Testing Model Router (Async Ollama Connection) ===")
