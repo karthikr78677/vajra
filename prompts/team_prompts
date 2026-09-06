@@ -1,0 +1,75 @@
+# Vajra Team Implementation Prompts
+
+Share these exact prompts with your teammates. They can paste these directly into their Antigravity chat window to instruct their AI to build their specific modules. 
+
+> **Important Setup Step for Teammates:** Before they paste these prompts, tell them to pull the latest `main` (or `m5`) branch from GitHub so they have the completed M1 and M4 code on their machines!
+
+---
+
+## Prompt for Teammate 1 (M2: Preprocessing & OCR)
+
+**Copy and paste this into Antigravity:**
+```text
+I am building "Vajra" — a self-hosted, air-gapped AI workbench. Modules M1 (Backend router) and M4 (Agent orchestrator) are already built in the codebase.
+
+Your goal is to implement Module 2 (M2: Preprocessing & OCR). 
+Here are the exact requirements:
+1. Create a new file `preprocessing/parser.py`. It should contain a function that uses `fitz` (PyMuPDF) to read a local PDF file and extract all text.
+2. Create a new file `ocr/engine.py`. It should use `pytesseract` to read image files (jpg, png) and extract text. The path to the tesseract executable should be loaded from the `.env` file (`TESSERACT_CMD`).
+3. Create a unified tool in `tools/vision_tool.py` (or update it if it exists) that wraps these functions so the Agent Orchestrator can call them.
+4. Add any new dependencies you need (like `PyMuPDF` and `pytesseract`, `Pillow`) to `requirements.txt` and install them using `uv pip install -r requirements.txt`.
+5. Ensure robust error handling (e.g., if a PDF is unreadable, return a clean error string).
+```
+
+---
+
+## Prompt for Teammate 2 (M3: Vision & Multimodal)
+
+**Copy and paste this into Antigravity:**
+```text
+I am building "Vajra" — a self-hosted, air-gapped AI workbench. Modules M1 (Backend router) and M4 (Agent orchestrator) are already built.
+
+Your goal is to implement Module 3 (M3: Vision & Multimodal). 
+Here are the exact requirements:
+1. Create a new file `vision/analyzer.py`. 
+2. We are using the `moondream:latest` model via our local Ollama server to analyze engineering diagrams and photos.
+3. Write an async function `analyze_image_async(image_path, prompt, router)`. It should read the image file, encode it to base64, and use the existing `ModelRouter.generate_async` method (from `backend/router.py`) to send the image and prompt to the `moondream` model.
+4. Create a tool wrapper for this in `tools/vision_tool.py` so the Agent can use it. The tool should look like: `analyze_image(filepath, question)`.
+5. Test it by writing a quick script in `tests/test_m3.py` that passes a sample image to the vision model and prints the result.
+```
+
+---
+
+## Prompt for Teammate 3 (M5: Knowledge Base & RAG)
+
+**Copy and paste this into Antigravity:**
+```text
+I am building "Vajra" — a self-hosted, air-gapped AI workbench. Modules M1 (Backend router) and M4 (Agent orchestrator) are already built.
+
+Your goal is to implement Module 5 (M5: Knowledge Base / RAG). 
+Here are the exact requirements:
+1. Create a new file `knowledge_base/vector_store.py`.
+2. We are using local persistent `chromadb`. The database path should be loaded from the `.env` file (`CHROMA_DB_PATH`).
+3. We are using `nomic-embed-text:latest` via Ollama for embeddings. You will need to write a small function that sends text to `http://localhost:11434/api/embeddings` to get the vector.
+4. Implement two main functions: `ingest_document(text, metadata)` which chunks text and stores it in ChromaDB, and `search_knowledge_base(query, top_k=3)` which embeds the query and retrieves the top matching chunks.
+5. Create a tool wrapper in `tools/rag_tool.py` called `search_documents(query)` so the Agent Orchestrator can search the local database for SOPs or past reports.
+6. Add `chromadb` to `requirements.txt` and install using `uv pip install`.
+```
+
+---
+
+## Prompt for Teammate 4 (M6: Document Gen & Streamlit UI)
+
+**Copy and paste this into Antigravity:**
+```text
+I am building "Vajra" — a self-hosted, air-gapped AI workbench. Modules M1 (Backend router) and M4 (Agent orchestrator) are already built.
+
+Your goal is to implement Module 6 (M6: Document Generation & Streamlit UI).
+Here are the exact requirements:
+1. Document Generation: Create `document_generation/generator.py`. Use `python-docx` to write a function `create_approval_note(text, output_path)`. Use `openpyxl` to write a function `create_excel_report(data_dict, output_path)`. Wrap these as tools in `tools/doc_tool.py` so the agent can generate files.
+2. Streamlit UI: Create `frontend/app.py`. Build a professional, dark-mode, enterprise-looking UI.
+3. The UI should have a sidebar for uploading files (PDF/Images) and a main chat interface.
+4. When the user submits a message, the UI should use `httpx` or `requests` to call our backend API at `http://localhost:8000/process` with the query and file paths.
+5. Display the response, and if the API returns paths to generated files, provide download buttons in Streamlit.
+6. Add any dependencies to `requirements.txt` and install via `uv`. Make sure it looks stunning!
+```
