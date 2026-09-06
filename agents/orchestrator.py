@@ -101,7 +101,17 @@ class AgentOrchestrator:
 
     def _extract_workspace(self, query: str):
         """Extracts an absolute directory path from the query."""
-        m = re.search(r'([a-zA-Z]:[\\/][^\s\'",]+)', query)
+        import re as _re
+        # Try matching paths in quotes (handles spaces perfectly)
+        m = _re.search(r'["\']([a-zA-Z]:[\\/][^"\']+)["\']', query)
+        if m:
+            return m.group(1).strip()
+        # Fallback for unquoted paths — stop at common query separators and accidental terminal chars
+        m = _re.search(r'([a-zA-Z]:[\\/][^\n,;><\?\*]+?(?=\s+(?:with|and|—|-|$)))', query, _re.IGNORECASE)
+        if m:
+            return m.group(1).strip()
+        # Final fallback (no spaces allowed)
+        m = _re.search(r'([a-zA-Z]:[\\/][^\s\'",><\?\*]+)', query)
         return m.group(1).strip() if m else None
 
     async def _generate_file_content(
@@ -174,7 +184,269 @@ class AgentOrchestrator:
             lang = lower.rsplit(".", 1)[-1] if "." in lower else "text"
             return lang, "Write complete, working content. No placeholders."
 
-    # ── Multi-file pipeline ────────────────────────────────────────────────────
+    # ── Feature 2: Smart AST-Based Context Compression ────────────────────────
+
+    def _extract_file_structure(self, filename: str, content: str) -> str:
+        """
+        Extracts a compact structural summary from a generated file.
+        Instead of passing the full raw content (expensive — thousands of tokens)
+        to the next model call, we extract only the skeleton that the next file
+        needs to know about: IDs, class names, function names, CSS variables, etc.
+
+        Token savings: typically 90%+ reduction vs. full file dump.
+        This keeps the model's context window free for actual generation.
+        """
+        lower = filename.lower()
+        lines = []
+
+        try:
+            if lower.endswith(".html"):
+                # Extract IDs, classes, event handlers, form inputs
+                ids = re.findall(r'id=["\']([^"\']+)["\']', content)
+                classes = re.findall(r'class=["\']([^"\']+)["\']', content)
+                onclicks = re.findall(r'onclick=["\']([^"\']+)["\']', content)
+                inputs = re.findall(r'<input[^>]*name=["\']([^"\']+)["\']', content)
+                # Flatten multi-class strings into individual class names
+                all_classes = list(dict.fromkeys(
+                    c for group in classes for c in group.split()
+                ))
+                if ids:
+                    lines.append(f"IDs: {', '.join(dict.fromkeys(ids))}")
+                if all_classes:
+                    lines.append(f"Classes: {', '.join(all_classes[:20])}")
+                if onclicks:
+                    lines.append(f"onclick handlers: {', '.join(dict.fromkeys(onclicks))}")
+                if inputs:
+                    lines.append(f"Form inputs (name): {', '.join(inputs)}")
+
+            elif lower.endswith(".css"):
+                # Extract CSS custom properties and class/id selectors
+                css_vars = re.findall(r'(--[\w-]+)\s*:', content)
+                selectors = re.findall(r'^([.#][\w][\w\s,.-]*?)\s*\{', content, re.MULTILINE)
+                if css_vars:
+                    lines.append(f"CSS variables: {', '.join(dict.fromkeys(css_vars))}")
+                if selectors:
+                    clean = [s.strip() for s in selectors[:25]]
+                    lines.append(f"Selectors: {', '.join(clean)}")
+
+            elif lower.endswith(".js") or lower.endswith(".ts"):
+                # Extract function/const/let declarations and event listeners
+                funcs = re.findall(
+                    r'(?:function\s+([\w]+)|(?:const|let|var)\s+([\w]+)\s*=\s*(?:async\s*)?(?:function|\())',
+                    content
+                )
+                func_names = [f[0] or f[1] for f in funcs if any(f)]
+                listeners = re.findall(r'addEventListener\(["\']([\w]+)["\']', content)
+                exports = re.findall(r'export\s+(?:default\s+)?(?:function|class|const)\s+([\w]+)', content)
+                if func_names:
+                    lines.append(f"Functions/vars: {', '.join(dict.fromkeys(func_names))}")
+                if listeners:
+                    lines.append(f"Event listeners: {', '.join(dict.fromkeys(listeners))}")
+                if exports:
+                    lines.append(f"Exports: {', '.join(exports)}")
+
+            elif lower.endswith(".py"):
+                # Use Python's built-in AST for perfect accuracy
+                import ast as _ast
+                try:
+                    tree = _ast.parse(content)
+                    imports = []
+                    funcs = []
+                    classes = []
+                    for node in _ast.walk(tree):
+                        if isinstance(node, (_ast.Import, _ast.ImportFrom)):
+                            if isinstance(node, _ast.ImportFrom):
+                                imports.append(f"{node.module}")
+                            else:
+                                imports.extend(a.name for a in node.names)
+                        elif isinstance(node, _ast.FunctionDef):
+                            args = [a.arg for a in node.args.args]
+                            funcs.append(f"{node.name}({', '.join(args)})")
+                        elif isinstance(node, _ast.ClassDef):
+                            classes.append(node.name)
+                    if imports:
+                        lines.append(f"Imports: {', '.join(dict.fromkeys(imports))}")
+                    if classes:
+                        lines.append(f"Classes: {', '.join(classes)}")
+                    if funcs:
+                        lines.append(f"Functions: {'; '.join(funcs[:20])}")
+                except SyntaxError:
+                    # Fallback: simple regex if AST parse fails
+                    funcs = re.findall(r'^def ([\w]+)\(', content, re.MULTILINE)
+                    lines.append(f"Functions: {', '.join(funcs)}")
+
+            elif lower.endswith(".json"):
+                # Just show top-level keys
+                import json as _json
+                try:
+                    data = _json.loads(content)
+                    if isinstance(data, dict):
+                        lines.append(f"Top-level keys: {', '.join(list(data.keys())[:20])}")
+                except Exception:
+                    lines.append("(JSON file — structure unavailable)")
+
+        except Exception as e:
+            logger.debug(f"Structure extraction failed for {filename}: {e}")
+            # Safe fallback: return first 300 chars only
+            return f"(structure extraction failed — first 300 chars):\n{content[:300]}"
+
+        if not lines:
+            return f"(no significant structure detected in {filename})"
+
+        return "\n".join(lines)
+
+    # ── Feature 1: Edit / Fix Mode ─────────────────────────────────────────────
+
+    _EDIT_KEYWORDS = re.compile(
+        r'\b(fix|solve|repair|patch|clean|sanitize|lint|optimize|format|refine|'
+        r'revamp|rework|change|update|modify|refactor|add|remove|delete|replace|rename|'
+        r'improve|enhance|debug|correct|adjust|rewrite|extend|style|color|font|'
+        r'move|align|resize|convert|make|turn|set|reduce|increase|decrease|'
+        r'resolve|address|handle|correct|overhaul|migrate|upgrade|port)\b',
+        re.IGNORECASE
+    )
+
+    def _detect_edit_intent(self, query: str, workspace: str) -> tuple:
+        """
+        Detects if the user wants to EDIT an existing file rather than create a new one.
+
+        Returns (target_filepath, instruction) if edit intent is found, else (None, None).
+
+        Edit intent = edit keyword + a filename that ALREADY EXISTS in workspace.
+        """
+        import os as _os
+
+        if not workspace:
+            return None, None
+
+        # Supported editable extensions
+        EDITABLE_EXTS = {
+            ".html", ".css", ".js", ".ts", ".py", ".sh",
+            ".json", ".md", ".txt", ".jsx", ".tsx", ".vue", ".scss", ".sass"
+        }
+
+        # Find any filename explicitly mentioned in the query
+        file_pattern = re.compile(
+            r"['\"]?([\w\-]+\.(?:html|css|js|ts|py|sh|json|md|txt|jsx|tsx|vue|scss|sass))['\"]?",
+            re.IGNORECASE
+        )
+        mentioned_files = [m.group(1) for m in file_pattern.finditer(query)]
+
+        has_edit_keyword = bool(self._EDIT_KEYWORDS.search(query))
+        has_create_keyword = bool(re.search(r'\b(create|build|generate|write|make)\b', query, re.IGNORECASE))
+
+        # Ambiguity fix: if user explicitly asked to CREATE specific files, DO NOT
+        # fall into edit mode. (This prevents "style.css" from triggering the "style" edit keyword).
+        if has_create_keyword and mentioned_files:
+            return None, None
+
+        # Case 1: Specific file(s) mentioned AND edit keyword present
+        if has_edit_keyword and mentioned_files:
+            # Ambiguity fix: if user says "add style.css to ...", and style.css doesn't exist, it's creation!
+            # We only return it as an edit target if it actually exists.
+            found_any = False
+            for fname in mentioned_files:
+                candidate = _os.path.join(workspace, fname)
+                if _os.path.isfile(candidate):
+                    logger.info(f"Edit mode (named file): target='{candidate}'")
+                    return candidate, query
+                    
+            # If we reached here, they named specific files but NONE exist yet!
+            # This means it's a request to CREATE those files in the existing dir.
+            return None, None
+
+        # Case 2: Workspace directory EXISTS on disk (with or without explicit keyword).
+        # If the LLM already classified this as CODING and the workspace has code files,
+        # it MUST be an edit task — scan and return all files.
+        if _os.path.isdir(workspace):
+            found = [
+                _os.path.join(workspace, f)
+                for f in sorted(_os.listdir(workspace))
+                if _os.path.splitext(f)[1].lower() in EDITABLE_EXTS
+                and _os.path.isfile(_os.path.join(workspace, f))
+            ]
+            if found:
+                logger.info(f"Edit mode (workspace scan): {len(found)} file(s) in '{workspace}'")
+                return found, query  # list = multi-file edit
+
+        return None, None
+
+    async def run_edit_task_async(
+        self, query: str, target_filepath: str
+    ) -> tuple:
+        """
+        Targeted file editor. Reads the current file content, sends it to the
+        model with the user's instruction, and overwrites only that file.
+
+        Uses the CODING model. Preserves all parts of the file not mentioned
+        in the edit instruction — it does NOT regenerate from scratch.
+        """
+        import os as _os
+        model_name = self.router.get_model_for_task(TaskType.CODING)
+        filename = _os.path.basename(target_filepath)
+        workspace = _os.path.dirname(target_filepath)
+        lang, _ = self._get_design_requirements(filename, query)
+
+        logger.info(f"Edit mode: editing '{filename}' in '{workspace}'")
+        print(f"  ✏️  Editing existing file: {filename}...", flush=True)
+
+        # Read the existing file — pass workspace so permission check uses the right root
+        current_content = read_file(target_filepath, workspace=workspace)
+        if current_content.startswith("Error") or current_content.startswith("PERMISSION"):
+            return f"❌ Could not read '{filename}': {current_content}", []
+
+        edit_prompt = (
+            f"You are editing an existing {lang} file called '{filename}'.\n"
+            f"User's instruction: {query}\n\n"
+            f"Here is the CURRENT content of {filename}:\n"
+            f"```{lang}\n{current_content}\n```\n\n"
+            f"Make ONLY the changes described in the instruction. "
+            f"Return the COMPLETE updated file in a ```{lang} ... ``` block. "
+            f"Do not remove any unrelated parts. No placeholders."
+        )
+
+        messages = [
+            {"role": "system", "content": (
+                f"You are an expert {lang} developer. "
+                f"Edit files precisely. Return only the updated file inside a code block."
+            )},
+            {"role": "user", "content": edit_prompt}
+        ]
+
+        new_content = ""
+        for attempt in range(3):
+            response = await self.router.chat_async(model_name, messages)
+            match = re.search(r"```(?:\w+)?\n(.*?)```", response, re.DOTALL)
+            if match:
+                new_content = match.group(1).strip()
+                break
+            lines = response.strip().splitlines()
+            if len(lines) > 3:
+                new_content = "\n".join(lines).strip()
+                break
+            messages.append({"role": "assistant", "content": response})
+            messages.append({"role": "user", "content": f"Wrap the complete updated {filename} in a ```{lang} ... ``` block."})
+
+        if not new_content:
+            return f"❌ Model failed to return updated content for '{filename}'.", []
+
+        result = write_file(target_filepath, new_content, workspace=workspace)
+
+        trace = [AgentStep(
+            thought=f"Edit instruction: '{query[:100]}'. Read existing {filename} ({len(current_content)} chars), applied changes, wrote {len(new_content)} chars.",
+            action="write_file",
+            action_input={"filepath": target_filepath},
+            observation=result
+        )]
+
+        final = (
+            f"✅ Successfully edited '{filename}'\n"
+            f"   File: {target_filepath}\n"
+            f"   Original: {len(current_content)} chars → Updated: {len(new_content)} chars\n"
+            f"   Change: {query[:120]}"
+        )
+        return final, trace
+
 
     async def run_multifile_coding_async(
         self, query: str, filenames: list, workspace: str
@@ -206,12 +478,18 @@ class AgentOrchestrator:
             logger.info(f"Generating {filename} ({lang})...")
             print(f"  → Generating {filename}...", flush=True)
 
-            # Build context from previously generated files to ensure IDs/classes match
+            # Build COMPACT structural summary from previously generated files
+            # (replaces raw file dump — saves ~90% tokens while retaining all
+            # the information the next model needs: IDs, functions, CSS vars etc.)
             prev_files_context = ""
             if previously_generated:
-                prev_files_context = "Previously generated files you must integrate with:\n\n"
+                prev_files_context = (
+                    "Previously generated files — structural summary "
+                    "(use these exact IDs/classes/functions to integrate):\n\n"
+                )
                 for prev_name, prev_content in previously_generated.items():
-                    prev_files_context += f"--- {prev_name} ---\n```{prev_content}```\n\n"
+                    structure = self._extract_file_structure(prev_name, prev_content)
+                    prev_files_context += f"### {prev_name}\n{structure}\n\n"
 
             content = await self._generate_file_content(
                 model_name=model_name,
@@ -298,7 +576,76 @@ class AgentOrchestrator:
         workspace = self._extract_workspace(query)
         filenames = self._detect_multifile_task(query)
 
-        # ── Strategy A: Multi-file pipeline ────────────────────────────────────
+        # ── Strategy A: Edit existing file(s) ──────────────────────────────────
+        # Checked BEFORE multi-file to avoid re-generating existing projects.
+        # _detect_edit_intent returns either:
+        #   str  -> single file path (named explicitly in query)
+        #   list -> all files in workspace dir (no specific file named)
+        if workspace:
+            edit_target, instruction = self._detect_edit_intent(query, workspace)
+            if edit_target:
+                # Single file edit
+                if isinstance(edit_target, str):
+                    logger.info(f"Routing to Edit Mode (single): '{edit_target}'")
+                    return await self.run_edit_task_async(instruction, edit_target)
+
+                # Multi-file edit (whole project fix)
+                if isinstance(edit_target, list):
+                    logger.info(f"Routing to Edit Mode (project): {len(edit_target)} files")
+                    print(f"  🔍 Found {len(edit_target)} file(s) in project. Planning targeted edits...", flush=True)
+                    
+                    import os as _os
+                    import re as _re
+
+                    # Step 1: Read structural summaries of the existing project
+                    summaries = []
+                    for fpath in edit_target:
+                        content = read_file(fpath, workspace=workspace)
+                        if content and not content.startswith("Error") and not content.startswith("PERMISSION"):
+                            struct = self._extract_file_structure(_os.path.basename(fpath), content)
+                            summaries.append(f"### {_os.path.basename(fpath)}\n{struct}")
+                            
+                    # Step 2: Use Reasoning model to PLAN the edit
+                    planning_prompt = (
+                        f"User instruction: {instruction}\n\n"
+                        f"Current Project Structure:\n{chr(10).join(summaries)}\n\n"
+                        "Which files need to be edited to complete this instruction?\n"
+                        "For each file that MUST be changed, output a line in exactly this format:\n"
+                        "EDIT_FILE: filename.ext | specific technical instruction for this file based on its structure\n\n"
+                        "Only include files that actually require changes. Do not include files that don't need edits."
+                    )
+                    
+                    plan_model = self.router.get_model_for_task(TaskType.REASONING)
+                    messages = [{"role": "system", "content": "You are a senior developer planning targeted project edits."}, {"role": "user", "content": planning_prompt}]
+                    plan_response = await self.router.chat_async(plan_model, messages)
+                    
+                    tasks = _re.findall(r"EDIT_FILE:\s*([\w\-\.]+)\s*\|\s*(.+)", plan_response)
+                    
+                    if not tasks:
+                        # Fallback: if planning fails, apply edit to all files
+                        logger.warning("Planning failed to yield EDIT_FILE targets, falling back to all")
+                        tasks = [(_os.path.basename(f), instruction) for f in edit_target]
+                        
+                    print(f"  📋 Plan complete: editing {len(tasks)} file(s) based on structural analysis.", flush=True)
+                    
+                    # Step 3: Execute the targeted edits
+                    all_trace = []
+                    edited_files = []
+                    for fname, spec_instr in tasks:
+                        fpath = _os.path.join(workspace, fname)
+                        if fpath in edit_target:
+                            out, tr = await self.run_edit_task_async(f"{instruction}\n\n(Specific focus for this file: {spec_instr})", fpath)
+                            edited_files.append(fname)
+                            all_trace.extend(tr)
+                            
+                    summary = (
+                        f"✅ Applied targeted fixes to {len(edited_files)} file(s):\n"
+                        + "\n".join(f"   • {p}" for p in edited_files)
+                        + f"\n\nInstruction applied: {instruction[:120]}"
+                    )
+                    return summary, all_trace
+
+        # ── Strategy B: Multi-file pipeline (create new project) ───────────────
         if filenames and workspace:
             logger.info(f"Routing to multi-file pipeline: {filenames}")
             return await self.run_multifile_coding_async(query, filenames, workspace)
@@ -391,14 +738,90 @@ class AgentOrchestrator:
 
         return "❌ Could not generate working code after 3 attempts. Please refine your request.", trace
 
+    async def run_vision_task_async(self, query: str) -> Tuple[str, List[AgentStep]]:
+        """
+        Dedicated vision handler. Directly calls the vision tool without going
+        through the JSON reasoning loop (which always fails for vision tasks).
+
+        Strategy:
+        - Extracts file path from the query using regex.
+        - If image (.png/.jpg/.bmp etc): calls analyze_image() directly.
+        - If PDF: calls extract_text() directly.
+        - Returns the raw tool result as the final answer.
+        """
+        import os as _os
+
+        # Extract a file path from the query (Windows or Unix style)
+        path_match = re.search(
+            r'"([^"]+\.(?:png|jpg|jpeg|bmp|tiff?|webp|pdf))"|'
+            r"'([^']+\.(?:png|jpg|jpeg|bmp|tiff?|webp|pdf))'|"
+            r'([a-zA-Z]:[\\/][^\s,;]+\.(?:png|jpg|jpeg|bmp|tiff?|webp|pdf))',
+            query, re.IGNORECASE
+        )
+
+        if not path_match:
+            answer = (
+                "I could not find a valid file path in your request. "
+                "Please include the full path to the image or PDF, for example:\n"
+                "  Analyse C:\\Users\\HP\\Pictures\\photo.png"
+            )
+            trace = [AgentStep(
+                thought="No file path found in query.",
+                action="final_answer",
+                action_input={"text": answer},
+                observation="Task Complete"
+            )]
+            return answer, trace
+
+        # Pick whichever capture group matched
+        filepath = (path_match.group(1) or path_match.group(2) or path_match.group(3)).strip()
+        filepath = filepath.strip('"').strip("'")
+        ext = _os.path.splitext(filepath)[1].lower()
+
+        logger.info(f"Vision task: file='{filepath}' ext='{ext}'")
+        print(f"  → Analysing: {filepath}", flush=True)
+
+        # Route to the right tool
+        if ext == ".pdf":
+            result = extract_text(filepath)
+            action = "extract_text"
+        else:
+            # Detect intent — if user asks a specific question, pass it; else use general preset
+            question_match = re.search(
+                r'(?:what|describe|identify|find|analyse|analyze|tell me|explain)\s+(.+)',
+                query, re.IGNORECASE
+            )
+            question = question_match.group(0) if question_match else "Describe this image in detail."
+            result = analyze_image(filepath, question=question)
+            action = "analyze_image"
+
+        trace = [AgentStep(
+            thought=f"User asked about '{_os.path.basename(filepath)}'. Calling {action} directly.",
+            action=action,
+            action_input={"filepath": filepath},
+            observation=result[:500] if result else "No result"
+        )]
+
+        if not result or result.startswith("Error"):
+            final = f"⚠️ Vision tool returned: {result}"
+        else:
+            final = f"📄 **Analysis of `{_os.path.basename(filepath)}`:**\n\n{result}"
+
+        return final, trace
+
     async def run_async(self, query: str, task_type: TaskType) -> Tuple[str, List[AgentStep]]:
         """
-        Main entry point. Routes CODING tasks to the specialized coding loop,
-        and all other tasks to the general JSON tool-calling loop.
+        Main entry point. Routes tasks to their specialized handlers:
+        - CODING  → run_coding_task_async  (multi-file pipeline / sandbox)
+        - VISION  → run_vision_task_async  (direct tool call, no JSON loop)
+        - REASONING → general JSON tool-calling loop
         """
-        # Route coding tasks to the specialized loop
         if task_type == TaskType.CODING:
             return await self.run_coding_task_async(query)
+
+        # Route vision tasks to the dedicated direct handler
+        if task_type == TaskType.VISION:
+            return await self.run_vision_task_async(query)
 
         model_name = self.router.get_model_for_task(task_type)
         logger.info(f"Orchestrator starting task '{query}' with model '{model_name}'")

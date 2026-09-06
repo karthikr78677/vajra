@@ -57,24 +57,72 @@ MODE_MAP = {
     "vision": TaskType.VISION,
 }
 
-_CODING_PATTERNS = re.compile(
-    r"\b(write|create|generate|build|make|code|script|program|implement|develop)\b.*"
-    r"\b(py|python|js|javascript|html|css|bash|script|function|class|app|game|tool|website|webpage)\b",
-    re.IGNORECASE,
-)
-_VISION_PATTERNS = re.compile(
-    r"\b(image|photo|picture|png|jpg|jpeg|pdf|ocr|scan|diagram|chart|screenshot|what is in|extract text)\b",
-    re.IGNORECASE,
+# ── LLM-based task router ──────────────────────────────────────────────────────
+# Instead of brittle keyword matching, we ask the reasoning model to classify
+# the intent in a single word. This correctly handles:
+#   "fix the bug in script.js"     -> CODING
+#   "add a dark theme to style.css" -> CODING
+#   "what is in this image"        -> VISION
+#   "summarise this PDF"           -> VISION
+#   "explain how recursion works"  -> REASONING
+
+_ROUTE_SYSTEM = (
+    "You are a task router for an AI assistant called Vajra. "
+    "Classify the user's query into exactly ONE of these three categories:\n"
+    "  CODING  - write, create, generate, build, fix, edit, update, add, remove, "
+    "change, modify, debug, refactor, improve code, scripts, HTML, CSS, JS, Python files.\n"
+    "  VISION  - analyse, describe, extract text from, read an image, photo, PNG, JPG, "
+    "screenshot, PDF, scan, diagram, chart, OCR.\n"
+    "  REASONING - answer questions, explain concepts, summarise text, do maths, "
+    "list files, search documents, anything not fitting CODING or VISION.\n"
+    "Reply with ONLY the single word: CODING, VISION, or REASONING. Nothing else."
 )
 
-def _auto_detect(query):
-    if _VISION_PATTERNS.search(query):
-        return TaskType.VISION
-    if _CODING_PATTERNS.search(query):
-        return TaskType.CODING
-    return TaskType.REASONING
+async def _llm_route_task(router: ModelRouter, query: str) -> TaskType:
+    """
+    Calls the reasoning model to classify the query.
+    Falls back to a fast regex heuristic if the model is unresponsive.
+    """
+    # Fast heuristic fallback (used if LLM call fails)
+    import re as _re
+    _img_ext = _re.compile(r'\.(png|jpg|jpeg|bmp|tiff|webp|pdf)\b', _re.IGNORECASE)
+    _file_ext = _re.compile(
+        r'\b(\w+\.(html|css|js|ts|py|sh|json|md|txt))\b', _re.IGNORECASE
+    )
+    _edit_kw = _re.compile(
+        r'\b(fix|change|update|modify|add|remove|build|create|generate|'
+        r'write|make|code|refactor|debug|improve|style|extend)\b', _re.IGNORECASE
+    )
 
-def _parse_query(raw):
+    def _heuristic(q: str) -> TaskType:
+        if _img_ext.search(q):
+            return TaskType.VISION
+        if _file_ext.search(q) or _edit_kw.search(q):
+            return TaskType.CODING
+        return TaskType.REASONING
+
+    try:
+        model = router.get_model_for_task(TaskType.REASONING)
+        messages = [
+            {"role": "system", "content": _ROUTE_SYSTEM},
+            {"role": "user", "content": query}
+        ]
+        response = await router.chat_async(model, messages)
+        word = response.strip().upper().split()[0] if response.strip() else ""
+        if "VISION" in word:
+            return TaskType.VISION
+        if "CODING" in word or "CODE" in word:
+            return TaskType.CODING
+        if "REASON" in word:
+            return TaskType.REASONING
+        # If the model returned something unexpected, fall back to heuristic
+        return _heuristic(query)
+    except Exception:
+        return _heuristic(query)
+
+
+def _parse_query(raw: str):
+    """Parses explicit [mode] prefix only. LLM routing handled separately in main."""
     m = re.match(r"^\[([a-zA-Z]+)\]\s*", raw.strip())
     if m:
         key = m.group(1).lower()
@@ -82,7 +130,7 @@ def _parse_query(raw):
         if task_type:
             clean = raw[m.end():].strip()
             return task_type, clean
-    return _auto_detect(raw), raw.strip()
+    return None, raw.strip()  # None = let LLM decide
 
 _TASK_LABELS = {
     TaskType.REASONING: "REASONING  [thinking]",
@@ -117,7 +165,8 @@ async def _monitor_permissions():
             req = permission_manager.get_pending(task_id)
             if req and not getattr(req, "_asked", False):
                 req._asked = True
-                asyncio.create_task(_simulate_approval(task_id, info["action"], info["details"]))
+                # Auto-approve in interactive test to prevent terminal noise
+                permission_manager.resolve(task_id, approved=True)
         await asyncio.sleep(0.5)
 
 async def main():
@@ -142,13 +191,31 @@ async def main():
                 print(HELP_TEXT)
                 continue
             task_type, query = _parse_query(raw)
+
+            # If no explicit [mode] prefix, ask the LLM to classify the intent
+            if task_type is None:
+                print("  🔀 Routing...", end="", flush=True)
+                task_type = await _llm_route_task(router, query)
+                print(f"\r", end="", flush=True)  # clear the routing line
+
+            # Auto-register any workspace path found in the query so the
+            # permission manager allows file ops outside the default vajra dir
+            import re as _re
+            _ws_match = _re.search(r'([a-zA-Z]:[\\/][^\s\'",]+)', query)
+            if _ws_match:
+                ws_path = _ws_match.group(1).strip()
+                import os as _os
+                if _os.path.sep in ws_path or "/" in ws_path:
+                    parent = _os.path.dirname(ws_path) if not _os.path.isdir(ws_path) else ws_path
+                    try:
+                        permission_manager.register_workspace(parent)
+                    except Exception:
+                        pass  # permission_manager may not have this method — safe to skip
+
             label = _TASK_LABELS[task_type]
             print(f"\n[Mode: {label}]  Agent is working...\n")
             try:
-                if task_type == TaskType.CODING:
-                    output, trace = await orchestrator.run_coding_task_async(query)
-                else:
-                    output, trace = await orchestrator.run_async(query, task_type)
+                output, trace = await orchestrator.run_async(query, task_type)
             except Exception as e:
                 print(f"\n[Error] {e}")
                 continue

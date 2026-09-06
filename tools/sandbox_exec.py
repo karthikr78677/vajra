@@ -93,7 +93,11 @@ def execute_code(code: str, interpreter: str = "python", timeout: int = 10, cwd:
                 cwd=cwd
             )
         except FileNotFoundError:
-            return f"Error: Interpreter '{interpreter}' not found on this system. Make sure it is installed and in PATH."
+            return f"Sandbox error: Interpreter '{interpreter}' not found."
+        except OSError as e:
+            return f"Sandbox OS error: {e}"
+        except subprocess.TimeoutExpired:
+            return f"Timeout Error: Code execution exceeded {timeout} seconds."
 
         output = result.stdout
         if result.stderr:

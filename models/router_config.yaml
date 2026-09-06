@@ -4,7 +4,7 @@ models:
     type: "chat"
     description: "General reasoning, drafting, and tool calling."
   coding:
-    name: "qwen2.5-coder:1.5b"
+    name: "qwen2.5-coder:3b"
     type: "chat"
     description: "Code generation and sandbox execution."
   vision:
