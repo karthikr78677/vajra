@@ -7,7 +7,7 @@ from backend.router import ModelRouter
 from tools.file_tool import read_file, write_file, delete_file
 from tools.calculator_tool import calculate
 from tools.sandbox_exec import execute_python
-from tools.vision_tool import extract_text
+from tools.vision_tool import extract_text, analyze_image
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +21,7 @@ Available tools:
 4. "calculate": {"expression": "<math expression>"} - Evaluates math safely.
 5. "execute_python": {"code": "<python code>"} - Runs Python code in a sandbox and returns output.
 6. "extract_text": {"filepath": "<path>"} - Extracts text from a local PDF or JPG/PNG image.
+7. "analyze_image": {"filepath": "<path>", "question": "<question>"} - Analyzes a photo, schematic, or engineering drawing.
 
 If you have the final answer or deliverable ready, use the tool "final_answer": {"text": "<your response>"}.
 
@@ -52,6 +53,8 @@ class AgentOrchestrator:
                 return execute_python(tool_input.get("code", ""))
             elif tool_name == "extract_text":
                 return extract_text(tool_input.get("filepath", ""))
+            elif tool_name == "analyze_image":
+                return analyze_image(tool_input.get("filepath", ""), tool_input.get("question", ""))
             else:
                 return f"Error: Unknown tool {tool_name}"
         except Exception as e:
