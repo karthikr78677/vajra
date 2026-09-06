@@ -1,0 +1,23 @@
+# Dynamic Workspace Support for Scenario B
+
+Currently, the Vajra coding agent is strictly sandboxed to the `VAJRA_WORKSPACE` folder defined in `.env`. The user has requested the ability for the agent to work in a specific local folder if it is mentioned in their query (e.g., "Create a project in C:\Projects\MyApp").
+
+## Open Questions
+None. The requirement is clear.
+
+## Proposed Changes
+
+
+### 2. Specialized Coding System Prompt (`agents/orchestrator.py`)
+- We will dynamically switch the `SYSTEM_PROMPT` based on the task type.
+- If it's a `CODING` task, we inject a prompt like: *"You are an Expert Software Engineer. You can write code in any language. Use `read_file` to analyze existing code, and `write_file` to modify it."*
+
+### 3. Strict Security Guardrails (`tools/`)
+We will enforce your requested limitations directly in the tools:
+- **Deletion:** `delete_file` immediately returns "PERMISSION_REQUIRED: Ask user to delete."
+- **Installation:** If the agent tries to run `npm install`, `pip install`, or `python -m venv`, the sandbox intercepts it and returns "PERMISSION_REQUIRED: Ask user to install."
+- **Execution:** We will add a flag to `execute_code` that requires explicit validation before it actually runs.
+
+### 4. Verification Plan
+- Ask the agent to read an existing HTML file, modify it to add CSS, and save it.
+- Ask the agent to install a pip package and verify the system blocks it and requests permission.
