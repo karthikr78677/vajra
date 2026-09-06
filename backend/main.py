@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, Request
 from sse_starlette.sse import EventSourceResponse
 import logging
 import time
-from backend.schemas import UserRequest, TaskAnalysisResult, TaskResponse, TaskType
+from backend.schemas import UserRequest, TaskAnalysisResult, TaskResponse, TaskType, PermissionApproveRequest
 from backend.task_analysis import analyze_task_async
 from backend.router import ModelRouter
 from agents.orchestrator import AgentOrchestrator
@@ -103,6 +103,27 @@ async def api_stream_task(request: Request):
             yield {"event": "error", "data": str(e)}
             
     return EventSourceResponse(event_generator())
+
+@app.get("/permissions/pending")
+async def get_pending_permissions():
+    """Returns a list of actions currently waiting for user approval."""
+    try:
+        pending = permission_manager.list_pending()
+        return {"status": "success", "pending": pending}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/permissions/approve")
+async def approve_permission(request: PermissionApproveRequest):
+    """Resolves a pending permission request (approved=True or False)."""
+    try:
+        success = permission_manager.resolve(request.task_id, request.approved)
+        if success:
+            return {"status": "success", "message": f"Task {request.task_id} resolved."}
+        else:
+            raise HTTPException(status_code=404, detail=f"Task {request.task_id} not found or already resolved.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn

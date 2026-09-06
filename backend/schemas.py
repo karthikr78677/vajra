@@ -41,3 +41,7 @@ class ModelConfig(BaseModel):
 class RouterConfig(BaseModel):
     models: Dict[str, ModelConfig]
     ollama_base_url: str
+
+class PermissionApproveRequest(BaseModel):
+    task_id: str
+    approved: bool

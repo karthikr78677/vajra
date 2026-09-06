@@ -70,9 +70,15 @@ def execute_code(code: str, interpreter: str = "python", timeout: int = 10, cwd:
     }
     suffix = ext_map.get(interpreter.lower(), ".py")
 
-    fd, path = tempfile.mkstemp(suffix=suffix, text=True)
+    fd, path = tempfile.mkstemp(suffix=suffix)
     try:
-        with os.fdopen(fd, 'w') as f:
+        # Always write source files as UTF-8 so the interpreter can
+        # handle any Unicode the model produces (e.g. ÷, ×, °, emoji).
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            # Prepend a PEP-263 encoding declaration to Python scripts so
+            # CPython's own parser never raises "Non-UTF-8 code" errors.
+            if suffix == '.py' and not code.lstrip().startswith('# -*- coding'):
+                f.write('# -*- coding: utf-8 -*-\n')
             f.write(code)
 
         try:
@@ -81,11 +87,17 @@ def execute_code(code: str, interpreter: str = "python", timeout: int = 10, cwd:
                 [interpreter, path],
                 capture_output=True,
                 text=True,
+                encoding='utf-8',
+                errors='replace',
                 timeout=timeout,
                 cwd=cwd
             )
         except FileNotFoundError:
-            return f"Error: Interpreter '{interpreter}' not found on this system. Make sure it is installed and in PATH."
+            return f"Sandbox error: Interpreter '{interpreter}' not found."
+        except OSError as e:
+            return f"Sandbox OS error: {e}"
+        except subprocess.TimeoutExpired:
+            return f"Timeout Error: Code execution exceeded {timeout} seconds."
 
         output = result.stdout
         if result.stderr:
