@@ -38,27 +38,227 @@ Format your output EXACTLY as valid JSON:
 Do not add any other text outside this JSON block.
 """
 
-# Specialized Coding Prompt (Scenario B)
-# The 1.5B model cannot reliably output JSON, so we use a simpler
-# "write code only" prompt and extract the code block with regex.
-CODING_SYSTEM_PROMPT = """You are an Expert Software Engineer.
-Your ONLY job is to write complete, working code to solve the user's request.
+# ── Coding Prompt ──────────────────────────────────────────────────────────────
+# The small 1.5B model cannot reliably output JSON, so the coding loop
+# extracts markdown code blocks via regex and runs them in the sandbox.
+CODING_SYSTEM_PROMPT = """You are an Elite Senior Software Engineer with 20+ years of experience.
+Your job: write COMPLETE, PRODUCTION-QUALITY, BEAUTIFUL code.
 
-Rules:
-- Write code in ANY language the user asks for (Python, JavaScript, Bash, etc.).
-- ALWAYS wrap your code in a markdown code block with the language name.
-- Example:
-```python
-print("Hello World")
-```
-- Do NOT use pip install or npm install — it is not permitted.
-- Write only the code. Do not explain it.
+STRICT RULES — violating any rule = task failure:
+1. ALWAYS wrap code in a markdown code block with the language name: ```python ... ```
+2. NEVER write placeholder comments like "# add more here" or "<!-- TODO -->".
+   Every function, button, style rule, and feature must be FULLY IMPLEMENTED.
+3. For UI (HTML/CSS/JS): use modern design — dark theme, gradients, smooth animations,
+   Google Fonts, glassmorphism, hover effects, transitions. NO plain grey boxes.
+4. For Python scripts that CREATE files: embed the COMPLETE file contents as multiline
+   strings. Do NOT leave HTML/CSS/JS content empty or with placeholders.
+5. Code must run on first try. No syntax errors. No missing dependencies.
+6. Write only the code block. No explanations before or after.
 """
+
+# Per-file focused prompt — used in the multi-file pipeline.
+# Injected once per file so the model only thinks about ONE file at a time.
+FILE_CONTENT_PROMPT_TEMPLATE = """You are an Elite Frontend/Backend Engineer.
+Write ONLY the complete, production-ready content for the file: {filename}
+
+Project context:
+{project_context}
+
+{previously_generated_files}
+
+Design requirements for this file:
+{design_requirements}
+
+RULES:
+- Output ONLY the raw file content inside a single ```{lang} ... ``` block.
+- ZERO placeholders. ZERO TODO comments. EVERY line must be real, working code.
+- For CSS: use variables, animations, transitions, modern layout (grid/flex).
+- For JS: all functions must be fully implemented and working.
+- For HTML: every button, input, and element must be wired up.
+"""
+
 
 class AgentOrchestrator:
     def __init__(self, router: ModelRouter):
         self.router = router
         self.max_retries = 8
+
+    # ── Helpers ────────────────────────────────────────────────────────────────
+
+    def _detect_multifile_task(self, query: str) -> list:
+        """
+        Detects if the user query asks for named files.
+        Returns a list of filenames (e.g. ['index.html', 'style.css']).
+        Returns an empty list if no explicit filenames are found.
+        """
+        pattern = re.compile(
+            r"['\"]?([\w\-]+\.(?:html|css|js|ts|py|sh|json|md|txt|jsx|tsx|vue|scss|sass))['\"]?",
+            re.IGNORECASE,
+        )
+        found = list(dict.fromkeys(m.group(1) for m in pattern.finditer(query)))
+        # Return the list if ANY files are detected (1 or more)
+        return found if len(found) >= 1 else []
+
+    def _extract_workspace(self, query: str):
+        """Extracts an absolute directory path from the query."""
+        m = re.search(r'([a-zA-Z]:[\\/][^\s\'",]+)', query)
+        return m.group(1).strip() if m else None
+
+    async def _generate_file_content(
+        self, model_name: str, filename: str, lang: str,
+        project_context: str, design_requirements: str,
+        previously_generated_files: str = "",
+    ) -> str:
+        """
+        Calls the model to generate raw content for a SINGLE file.
+        Returns the extracted code string, or empty string on failure.
+        """
+        sys_prompt = FILE_CONTENT_PROMPT_TEMPLATE.format(
+            filename=filename, lang=lang,
+            project_context=project_context,
+            design_requirements=design_requirements,
+            previously_generated_files=previously_generated_files,
+        )
+        messages = [
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": f"Write the complete content for: {filename}"},
+        ]
+        for _ in range(3):
+            response = await self.router.chat_async(model_name, messages)
+            match = re.search(r"```(?:\w+)?\n(.*?)```", response, re.DOTALL)
+            if match:
+                return match.group(1).strip()
+            lines = response.strip().splitlines()
+            if len(lines) > 2:
+                return "\n".join(lines).strip()
+            messages.append({"role": "assistant", "content": response})
+            messages.append({"role": "user", "content": f"Wrap your code in a ```{lang} ... ``` block."})
+        return ""
+
+    def _get_design_requirements(self, filename: str, query: str) -> tuple:
+        """Returns (lang, design_requirements) for a given filename."""
+        lower = filename.lower()
+        if lower.endswith(".html"):
+            return "html", (
+                "Create a COMPLETE HTML structure with ALL interactive elements fully wired. "
+                "Use semantic HTML5. Link to style.css and script.js. "
+                "Import Google Fonts in <head>. Every button/input must have correct onclick/onchange attributes. "
+                "No placeholders. The page must look premium when opened in a browser."
+            )
+        elif lower.endswith(".css"):
+            return "css", (
+                "Create stunning, modern CSS. MUST include: "
+                "CSS custom properties (variables) for the full color palette, "
+                "dark color scheme (e.g. #0d1117, #161b22), gradient backgrounds, "
+                "glassmorphism for card/container elements (backdrop-filter: blur), "
+                "smooth transitions (0.2-0.3s ease) on ALL interactive elements, "
+                "hover and :active states on all buttons, "
+                "CSS Grid or Flexbox layouts, Google Font @import at top, "
+                "box-shadow and border-radius for depth, keyframe animations. "
+                "Make it look like a premium app — WOW factor is required."
+            )
+        elif lower.endswith(".js"):
+            return "js", (
+                "Write complete, fully working JavaScript. Every function must be implemented end-to-end. "
+                "Use modern ES6+ (const, let, arrow functions, template literals, destructuring). "
+                "Add keyboard event listeners, smooth DOM manipulation, and error handling. "
+                "No placeholder comments. All features must work correctly."
+            )
+        elif lower.endswith(".py"):
+            return "python", (
+                "Write complete Python. All functions implemented. "
+                "Use pathlib for file operations. Handle errors with try/except. "
+                "Create directories with mkdir(parents=True, exist_ok=True)."
+            )
+        else:
+            lang = lower.rsplit(".", 1)[-1] if "." in lower else "text"
+            return lang, "Write complete, working content. No placeholders."
+
+    # ── Multi-file pipeline ────────────────────────────────────────────────────
+
+    async def run_multifile_coding_async(
+        self, query: str, filenames: list, workspace: str
+    ) -> tuple:
+        """
+        Generates multiple files ONE AT A TIME in focused model calls.
+        Each file gets a targeted prompt so the model never runs out of context.
+        Files are written directly via write_file (no sandbox needed).
+        This produces complete, beautiful output that the sandbox loop cannot.
+        """
+        import os as _os
+        model_name = self.router.get_model_for_task(TaskType.CODING)
+        logger.info(f"Multi-file pipeline: {filenames} -> workspace: {workspace}")
+
+        project_context = (
+            f"Project goal: {query}\n"
+            f"Files to create: {', '.join(filenames)}\n"
+            f"Output directory: {workspace}\n"
+            f"These files work TOGETHER as one complete, beautiful project."
+        )
+
+        trace: List[AgentStep] = []
+        created_files: list = []
+        failed_files: list = []
+        previously_generated: dict[str, str] = {}
+
+        for filename in filenames:
+            lang, design_req = self._get_design_requirements(filename, query)
+            logger.info(f"Generating {filename} ({lang})...")
+            print(f"  → Generating {filename}...", flush=True)
+
+            # Build context from previously generated files to ensure IDs/classes match
+            prev_files_context = ""
+            if previously_generated:
+                prev_files_context = "Previously generated files you must integrate with:\n\n"
+                for prev_name, prev_content in previously_generated.items():
+                    prev_files_context += f"--- {prev_name} ---\n```{prev_content}```\n\n"
+
+            content = await self._generate_file_content(
+                model_name=model_name,
+                filename=filename,
+                lang=lang,
+                project_context=project_context,
+                design_requirements=design_req,
+                previously_generated_files=prev_files_context,
+            )
+
+            if not content:
+                logger.warning(f"Failed to generate content for {filename}")
+                failed_files.append(filename)
+                trace.append(AgentStep(
+                    thought=f"Attempting to generate {filename}",
+                    action="write_file",
+                    action_input={"filepath": _os.path.join(workspace, filename)},
+                    observation=f"FAILED: Model returned empty content for {filename}"
+                ))
+                continue
+
+            # Save content so the next file can reference it
+            previously_generated[filename] = content
+
+            filepath = _os.path.join(workspace, filename)
+            result = write_file(filepath, content, workspace=workspace)
+            created_files.append(filepath)
+            logger.info(f"Wrote {filename}: {result}")
+
+            trace.append(AgentStep(
+                thought=f"Generated complete {lang} content for {filename} ({len(content)} chars)",
+                action="write_file",
+                action_input={"filepath": filepath},
+                observation=result,
+            ))
+
+        lines = []
+        if created_files:
+            lines.append(f"✅ Successfully created {len(created_files)} file(s):")
+            for f in created_files:
+                lines.append(f"   • {f}")
+        if failed_files:
+            lines.append(f"\n⚠️  Failed to generate {len(failed_files)} file(s): {', '.join(failed_files)}")
+        if created_files:
+            lines.append(f"\nOpen '{_os.path.join(workspace, filenames[0])}' in your browser to see the result.")
+
+        return "\n".join(lines), trace
 
     def _execute_tool(self, tool_name: str, tool_input: dict) -> str:
         try:
@@ -85,21 +285,27 @@ class AgentOrchestrator:
 
     async def run_coding_task_async(self, query: str) -> Tuple[str, List[AgentStep]]:
         """
-        Specialized loop for coding tasks using the 1.5B coder model.
-        Instead of JSON tool-calling (which the small model fails at),
-        this loop simply asks the model to write code in a markdown block,
-        extracts it with regex, runs it in the sandbox, and returns the result.
-        Supports up to 3 fix iterations if the code crashes.
+        Main coding entry point. Automatically chooses the best strategy:
+        - Multi-file pipeline: when query mentions 2+ named files AND a workspace path.
+          Generates each file in a separate focused model call → writes directly.
+          Produces complete, beautiful output the sandbox loop cannot match.
+        - Single-file sandbox loop: fallback for single-file or script tasks.
+          Generates code, runs it in the sandbox, auto-fixes errors up to 3x.
         """
         model_name = self.router.get_model_for_task(TaskType.CODING)
         logger.info(f"Coding Agent starting task with model '{model_name}'")
 
-        # Extract target workspace path from the query (e.g. C:\path\to\folder)
-        workspace = None
-        path_match = re.search(r'([a-zA-Z]:[\\/][^\s\'",]+)', query)
-        if path_match:
-            workspace = path_match.group(1).strip()
-            logger.info(f"Dynamically identified workspace: {workspace}")
+        workspace = self._extract_workspace(query)
+        filenames = self._detect_multifile_task(query)
+
+        # ── Strategy A: Multi-file pipeline ────────────────────────────────────
+        if filenames and workspace:
+            logger.info(f"Routing to multi-file pipeline: {filenames}")
+            return await self.run_multifile_coding_async(query, filenames, workspace)
+
+        # ── Strategy B: Single-file sandbox loop ───────────────────────────────
+        logger.info("Routing to single-file sandbox loop")
+        workspace = workspace  # may be None
 
         sys_prompt = CODING_SYSTEM_PROMPT
         if workspace:
