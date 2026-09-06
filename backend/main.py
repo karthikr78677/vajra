@@ -2,6 +2,9 @@ from fastapi import FastAPI, HTTPException, Request
 from sse_starlette.sse import EventSourceResponse
 import logging
 import time
+import os
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from backend.schemas import UserRequest, TaskAnalysisResult, TaskResponse, TaskType, PermissionApproveRequest
 from backend.task_analysis import analyze_task_async
 from backend.router import ModelRouter
@@ -12,11 +15,20 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Vajra - Air-gapped AI Workbench (Advanced M1)")
-router_instance = ModelRouter()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+router = ModelRouter()
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    await router_instance.close()
+    await router.close()
 
 # --- Permission Approval Endpoints ---
 
@@ -124,6 +136,11 @@ async def approve_permission(request: PermissionApproveRequest):
             raise HTTPException(status_code=404, detail=f"Task {request.task_id} not found or already resolved.")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# Mount React UI
+frontend_dist = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
+if os.path.exists(frontend_dist):
+    app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="static_frontend")
 
 if __name__ == "__main__":
     import uvicorn
