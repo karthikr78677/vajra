@@ -99,3 +99,26 @@ coverage.xml
 *.bin
 *.safetensors
 models/*.gguf
+
+
+
+# Local M2 test inputs and generated extraction output
+*.pdf
+*.jpg
+*.jpeg
+*.png
+*.tif
+*.tiff
+*.bmp
+*.txt
+*.out
+
+# OCR and parser scratch directories
+scratch/
+tmp/
+test-data/
+
+# Local logs and reports
+*.log
+coverage.xml
+.pytest_cache/

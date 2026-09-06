@@ -6,16 +6,43 @@ from backend.schemas import UserRequest, TaskAnalysisResult, TaskResponse, TaskT
 from backend.task_analysis import analyze_task_async
 from backend.router import ModelRouter
 from agents.orchestrator import AgentOrchestrator
+from agents.permission_manager import permission_manager
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Vajra - Air-gapped AI Workbench (Advanced M1)")
-router = ModelRouter()
+router_instance = ModelRouter()
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    await router.close()
+    await router_instance.close()
+
+# --- Permission Approval Endpoints ---
+
+@app.get("/permissions")
+async def list_pending_permissions():
+    """Returns all pending permission requests waiting for user approval."""
+    return {"pending": permission_manager.list_pending()}
+
+@app.post("/approve/{task_id}")
+async def approve_permission(task_id: str):
+    """Approves a pending permission request and resumes the paused agent."""
+    pending = permission_manager.get_pending(task_id)
+    if not pending:
+        raise HTTPException(status_code=404, detail=f"No pending permission for task_id: {task_id}")
+    permission_manager.resolve(task_id, approved=True)
+    return {"status": "approved", "task_id": task_id, "action": pending.action}
+
+@app.post("/deny/{task_id}")
+async def deny_permission(task_id: str):
+    """Denies a pending permission request and cancels the paused agent action."""
+    pending = permission_manager.get_pending(task_id)
+    if not pending:
+        raise HTTPException(status_code=404, detail=f"No pending permission for task_id: {task_id}")
+    permission_manager.resolve(task_id, approved=False)
+    return {"status": "denied", "task_id": task_id, "action": pending.action}
+
 
 @app.post("/analyze", response_model=TaskAnalysisResult)
 async def api_analyze_task(request: UserRequest):
