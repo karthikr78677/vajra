@@ -222,10 +222,13 @@ async def main():
             print("\n" + "="*54)
             print("  FINAL OUTPUT")
             print("="*54)
-            print(output)
+            print(_deduplicate_output(output))
             print("="*54 + "\n")
             if trace:
-                show = input("Show agent trace? (y/n): ").strip().lower()
+                try:
+                    show = input("Show agent trace? (y/n): ").strip().lower()
+                except EOFError:
+                    show = "n"
                 if show in ("y", "yes"):
                     print(f"\n--- Agent Trace ({len(trace)} steps) ---")
                     for i, step in enumerate(trace, 1):
@@ -236,10 +239,34 @@ async def main():
                     print("--- End of Trace ---\n")
     finally:
         perm_task.cancel()
+        # Swallow ALL cleanup errors — they are all benign asyncio socket teardowns
         try:
-            await router.close()
+            await asyncio.wait_for(router.close(), timeout=2.0)
         except Exception:
             pass
 
+def _deduplicate_output(text: str, sentence_threshold: int = 3) -> str:
+    """
+    Detects when a vision/LLM model repeats the same sentence more than
+    `sentence_threshold` times and truncates the output cleanly.
+    """
+    import re
+    sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+    if len(sentences) <= sentence_threshold:
+        return text
+    seen: dict[str, int] = {}
+    result = []
+    for s in sentences:
+        key = s.strip().lower()
+        seen[key] = seen.get(key, 0) + 1
+        if seen[key] > sentence_threshold:
+            result.append("\n[Note: Repetitive output truncated]")
+            break
+        result.append(s)
+    return " ".join(result)
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        pass  # clean exit, no traceback
