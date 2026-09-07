@@ -1,0 +1,41 @@
+# Knowledge Base / RAG Module Implementation Plan
+
+## Goal
+Build the local Knowledge Base (RAG) module for Vajra to ground answers in company SOPs using `sentence-transformers` and `ChromaDB`, completely offline.
+
+## Proposed Changes
+
+### Synthetic Data
+#### [NEW] `data/sample_sops/SOP_Compressor_Restart.txt`
+#### [NEW] `data/sample_sops/SOP_Pressure_Vessel_Inspection.txt`
+#### [NEW] `data/sample_sops/Manual_Valve_Maintenance.txt`
+#### [NEW] `data/sample_sops/Manual_Safety_Lockout_Tagout.txt`
+#### [NEW] `data/sample_sops/Correspondence_Vendor_Approval_2024.txt`
+#### [NEW] `data/sample_sops/Correspondence_Inspection_Followup.txt`
+Will generate realistic, dummy industrial procedures for testing.
+
+### Knowledge Base Module
+#### [NEW] `knowledge_base/__init__.py`
+Make it a package.
+#### [NEW] `knowledge_base/ingest.py`
+- `chunk_text(text, chunk_size=400, overlap=50)`
+- `ingest_document(file_path)`: Uses `all-MiniLM-L6-v2` and `chromadb.PersistentClient` saving to `knowledge_base/chroma_store/`.
+- `ingest_all()`: Processes all `.txt` files in `data/sample_sops/`.
+#### [NEW] `knowledge_base/retrieve.py`
+- `search_knowledge_base(query, k=3)`
+- `format_for_prompt(results)`
+
+### Tests
+#### [NEW] `tests/test_knowledge_base.py`
+- Tests `ingest_all()` populates data.
+- Tests 3 specific queries targeting specific files.
+- Tests a nonsense query.
+
+## Verification Plan
+1. Run `python -m knowledge_base.ingest` and verify chunks stored.
+2. Run `python -m knowledge_base.retrieve` and verify top 3 results.
+3. Run `pytest tests/test_knowledge_base.py` to verify accuracy.
+4. Verify offline functionality.
+
+> [!NOTE]
+> I will proceed to create the files and run the tests once you approve this plan.

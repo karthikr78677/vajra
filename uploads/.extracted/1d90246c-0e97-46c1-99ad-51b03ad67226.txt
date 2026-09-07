@@ -1,0 +1,15 @@
+
+DEPARTMENT Of CSE (AI&ML) MAJOR PROJECT
+Crowd detection and theft detection GIVE THIS ALSO LIKE SAME
+
+
+ABSTRACT:
+This project proposes an AI-based intelligent surveillance system for real-time crowd detection and theft detection in public and high-security environments. The system uses Computer Vision, Deep Learning, and Object Detection techniques to analyze live video streams from surveillance cameras. It detects and counts people in a specific area and identifies crowd density and unusual crowd formation based on predefined thresholds. The system continuously monitors individual and group activities to identify suspicious behavior and potential theft incidents. Advanced Object Tracking and Activity Recognition techniques are used to track people and objects and detect abnormal interactions, such as unauthorized removal or movement of objects. When suspicious activity or excessive crowd density is detected, the system generates real-time alerts for security personnel. The system can maintain event information and provide video evidence to support further investigation. By reducing dependence on continuous manual monitoring, the proposed system improves the efficiency, accuracy, and response time of security operations. The overall objective is to develop a smart, automated, and real-time surveillance solution for improving public safety and preventing theft.
+
+Keywords: Crowd Detection, Theft Detection, Artificial Intelligence, Computer Vision, Deep Learning, Object Detection, People Counting, Crowd Density Estimation, Object Tracking, Activity Recognition, Anomaly Detection, Real-Time Surveillance, Security Monitoring.
+
+
+
+INTERNAL GUIDE	HEAD OF THE DEPARTMENT
+Mr. P Srinivas                                                    DR .K. Shirisha Reddy
+(Assist prof)                                                                

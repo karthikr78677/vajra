@@ -30,3 +30,6 @@ streamlit>=1.27.0
 httpx>=0.25.0
 tenacity>=8.2.3
 sse-starlette>=1.6.5
+
+
+aiofiles

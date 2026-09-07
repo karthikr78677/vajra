@@ -1,0 +1,18 @@
+808: '        else:'
+809: '            # Detect OCR intent: "extract text", "ocr", "read text" etc. -> use Tesseract OCR'
+810: '            ocr_intent = re.search('
+811: "                r'\\b(extract text|ocr|read text|get text|text from|transcribe|text in)\\b',"
+812: '                query, re.IGNORECASE'
+813: '            )'
+814: '            if ocr_intent:'
+815: '                result = extract_text(filepath)'
+816: '                action = "extract_text"'
+817: '            else:'
+818: '                # Detect if user asks a specific question about the image'
+819: '                question_match = re.search('
+820: "                    r'(?:what|describe|identify|find|analyse|analyze|tell me|explain)\\s+(.+)',"
+821: '                    query, re.IGNORECASE'
+822: '                )'
+823: '                question = question_match.group(0) if question_match else "Describe this image in detail."'
+824: '                result = analyze_image(filepath, question=question)'
+825: '                action = "analyze_image"'

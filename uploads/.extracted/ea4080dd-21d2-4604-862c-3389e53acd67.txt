@@ -1,0 +1,31 @@
+User Request
+
+FastAPI Backend
+router.py
+
+Task Analysis
+task_analysis.py
+
+TaskType.REASONING TaskType.CODING
+Reasoning Agent Coding Agent
+(Qwen2.5 7B / LLaMA) (Qwen2.5-Coder 1.5B)
+Tool Execution Loop Extract Markdown Code
+extract_text ae image a read/write/delete |
+. Vision Engine File Tool Sandbox Environment
+Parser & OCR Engine Calculator .
+Moondream Dynamic Workspace sandbox_exec.py
+
+| PyMuPor/ Tesseract | / | PyMuPor/ Tesseract | final_answer Send Error to Model
+
+4 Dangerous Command
+Permission Manager
+Safe Command 8
+Event Paused
+Approved Request Approval Approve/Deny
+Execute Code User UI
+(Python, Node, PS) Terminal / API
+Success Output Syntax/Runtime Error
+
+. Auto-Fix Loop
+Return Final Output to User .
+(Max 3 retries)

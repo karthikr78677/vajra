@@ -1,0 +1,36 @@
+800: 
+801:         logger.info(f"Vision task: file='{filepath}' ext='{ext}'")
+802:         print(f"  → Analysing: {filepath}", flush=True)
+803: 
+804:         # Route to the right tool
+805:         if ext == ".pdf":
+806:             result = extract_text(filepath)
+807:             action = "extract_text"
+808:         else:
+809:             # Detect OCR intent: "extract text", "ocr", "read text" etc. -> use Tesseract OCR
+810:             ocr_intent = re.search(
+811:                 r'\\b(extract text|ocr|read text|get text|text from|transcribe|text in)\\b',
+812:                 query, re.IGNORECASE
+813:             )
+814:             if ocr_intent:
+815:                 result = extract_text(filepath)
+816:                 action = "extract_text"
+817:             else:
+818:                 # Detect if user asks a specific question about the image
+819:                 question_match = re.search(
+820:                     r'(?:what|describe|identify|find|analyse|analyze|tell me|explain)\\s+(.+)',
+821:                     query, re.IGNORECASE
+822:                 )
+823:                 question = question_match.group(0) if question_match else "Describe this image in detail."
+824:                 result = analyze_image(filepath, question=question)
+825:                 action = "analyze_image"
+826:         trace = [AgentStep(
+827:             thought=f"User asked about '{_os.path.basename(filepath)}'. Calling {action} directly.",
+828:             action=action,
+829:             action_input={"filepath": filepath},
+830:             observation=result[:500] if result else "No result"
+831:         )]
+832: 
+833:         if not result or result.startswith("Error"):
+834:             final = f"⚠️ Vision tool returned: {result}"
+835:         else:

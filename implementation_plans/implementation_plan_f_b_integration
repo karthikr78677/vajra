@@ -1,0 +1,235 @@
+# Vajra — Full Frontend ↔ Backend Integration Plan
+
+## Overview
+
+The backend (FastAPI, port 8000) and frontend (React/Vite, port 5174) are currently **partially connected**. The `/process` and `/permissions` wiring exists but 5 critical flows are broken or missing. This plan closes every gap.
+
+---
+
+## Current Gaps
+
+| # | Gap | Symptom |
+|---|---|---|
+| 1 | **No file upload endpoint** | Frontend sends filenames only — backend never receives file bytes |
+| 2 | **No ChromaDB ingest endpoint** | "Add to Database" + Pipeline ingest are purely frontend mock |
+| 3 | **No SSE streaming in chat** | Frontend uses blocking `POST /process`; no real-time token stream |
+| 4 | **No conversation history** | Each message sent in isolation — model has no memory of prior turns |
+| 5 | **No workspace folder ingest** | Local folder path chip is UI-only; backend never reads the folder |
+| 6 | **`api.js` incomplete** | Upload, ingest, stream, and history calls are absent |
+
+---
+
+## Architecture After Integration
+
+```
+Browser (React)
+   │
+   ├── POST /upload          → saves files to server temp dir, returns saved paths
+   ├── POST /ingest          → ChromaDB indexes uploaded files / workspace path
+   ├── POST /process         → runs orchestrator (non-streaming, with history)
+   ├── GET  /stream (SSE)    → streams token chunks for chat (replaces /process in chat)
+   ├── GET  /permissions/pending
+   └── POST /permissions/approve
+```
+
+---
+
+## Open Questions / Decisions
+
+> [!IMPORTANT]
+> **Streaming vs. Non-Streaming for Chat**
+> The backend already has `POST /stream` (SSE). Should the chat use streaming (tokens appear word-by-word like Claude) or keep the current blocking response? **Recommended: streaming** — this plan implements it via `EventSource`.
+
+> [!IMPORTANT]
+> **File storage on server**
+> Uploaded files need a place to live on the server. Plan uses `VAJRA_WORKSPACE/uploads/` (already in `.env` as `VAJRA_WORKSPACE=C:\Users\HP\Downloads\vajra`). Files are saved there and their absolute paths are passed to the orchestrator.
+
+---
+
+## Proposed Changes
+
+---
+
+### Backend
+
+#### [MODIFY] [`backend/schemas.py`](file:///c:/Users/HP/Downloads/vajra/backend/schemas.py)
+Add `history` field to `UserRequest` for multi-turn context, and add `IngestRequest` schema.
+
+```python
+class HistoryMessage(BaseModel):
+    role: str        # "user" | "assistant"
+    content: str
+
+class UserRequest(BaseModel):
+    query: str
+    file_paths: List[str] = []
+    history: List[HistoryMessage] = []   # ← NEW: conversation history
+
+class IngestRequest(BaseModel):
+    file_paths: List[str] = []           # already-uploaded absolute paths
+    workspace_path: Optional[str] = None # local folder to scan + index
+    domain: str = "General"
+```
+
+---
+
+#### [MODIFY] [`backend/main.py`](file:///c:/Users/HP/Downloads/vajra/backend/main.py)
+Add 3 new endpoints:
+
+**`POST /upload`** — Multipart file upload, saves to `VAJRA_WORKSPACE/uploads/`, returns saved paths:
+```python
+@app.post("/upload")
+async def upload_files(files: List[UploadFile] = File(...)):
+    saved = []
+    for f in files:
+        dest = UPLOAD_DIR / f.filename
+        async with aiofiles.open(dest, "wb") as out:
+            await out.write(await f.read())
+        saved.append(str(dest))
+    return {"paths": saved}
+```
+
+**`POST /ingest`** — Runs ChromaDB indexing on uploaded files or a workspace folder:
+```python
+@app.post("/ingest")
+async def ingest_documents(request: IngestRequest):
+    # calls knowledge_base indexer for each path
+    # returns { indexed: int, collection: str }
+```
+
+**`GET /stream` (SSE, updated)** — Accepts `history[]` in request body, passes full conversation to orchestrator:
+```python
+@app.post("/stream")
+async def api_stream_task(request: Request):
+    body = await request.json()
+    query = body.get("query", "")
+    history = body.get("history", [])
+    file_paths = body.get("file_paths", [])
+    # streams token chunks via EventSourceResponse
+```
+
+Also update **`POST /process`** to accept and forward `history` to the orchestrator.
+
+---
+
+#### [MODIFY] [`agents/orchestrator.py`](file:///c:/Users/HP/Downloads/vajra/agents/orchestrator.py)
+Update `run_async(query, task_type)` to accept `history` and `file_paths`:
+
+```python
+async def run_async(self, query: str, task_type: TaskType,
+                    history: list = None, file_paths: list = None):
+    # Build conversation context from history
+    # Pass file_paths to the tool inputs
+```
+
+The history is prepended to the system prompt context so the model has full conversation awareness.
+
+---
+
+#### [NEW] [`backend/ingest.py`](file:///c:/Users/HP/Downloads/vajra/backend/ingest.py)
+New module to handle ChromaDB document ingestion:
+- Accepts a list of file paths
+- Uses `tools/vision_tool.py`'s `extract_text()` for PDF/image extraction
+- Chunks text and upserts into the `chroma_db` collection
+- Returns count of indexed chunks
+
+---
+
+### Frontend
+
+#### [MODIFY] [`frontend/src/api.js`](file:///c:/Users/HP/Downloads/vajra/frontend/src/api.js)
+Expand with 3 new methods:
+
+```js
+// Upload actual file bytes to server, get back absolute paths
+uploadFiles: async (files) => {
+  const form = new FormData();
+  files.forEach(f => form.append('files', f));
+  const res = await apiClient.post('/upload', form, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  });
+  return res.data; // { paths: [...] }
+},
+
+// Index files / workspace into ChromaDB
+ingestDocuments: async ({ filePaths, workspacePath, domain }) => {
+  const res = await apiClient.post('/ingest', {
+    file_paths: filePaths,
+    workspace_path: workspacePath,
+    domain,
+  });
+  return res.data;
+},
+
+// SSE streaming — returns an EventSource-compatible controller
+streamTask: (query, history, filePaths, onChunk, onDone, onError) => {
+  // Uses fetch + ReadableStream to POST to /stream and parse SSE chunks
+  // Calls onChunk(text) for each token, onDone() when [DONE], onError(err) on failure
+}
+```
+
+---
+
+#### [MODIFY] [`frontend/src/App.jsx`](file:///c:/Users/HP/Downloads/vajra/frontend/src/App.jsx)
+**`handleSubmit` refactor** (the most important change):
+
+Current flow:
+```
+handleSubmit → api.processTask(text, fileNames) → wait → render
+```
+
+New flow:
+```
+handleSubmit
+  → api.uploadFiles(actualFileObjects)    [if files attached]
+  → open SSE stream via api.streamTask()
+  → onChunk: append token to assistant message in state (real-time)
+  → onDone: mark message complete, add deliverable if present
+  → onError: show error in bubble
+```
+
+Also:
+- **Pipeline "Start Ingest" button** → calls `api.uploadFiles()` then `api.ingestDocuments()`
+- **Pipeline "Add to Database"** → calls `api.uploadFiles()` then `api.ingestDocuments()`
+- **Workspace path confirm** → calls `api.ingestDocuments({ workspacePath })`
+- **History forwarding**: before each `streamTask` call, build `history[]` from the active conversation's `messages[]` array and pass it to the API
+
+**New state for streaming:**
+```js
+const [streamingMsgId, setStreamingMsgId] = useState(null);
+// Used to track which assistant message is currently receiving tokens
+```
+
+---
+
+## Verification Plan
+
+### Automated
+```bash
+# Start backend
+python -m backend.main
+
+# Run basic API checks
+curl -X POST http://localhost:8000/upload -F "files=@test.pdf"
+curl -X POST http://localhost:8000/ingest -d '{"file_paths":["..."]}'
+curl -X POST http://localhost:8000/process -d '{"query":"hello","history":[]}'
+```
+
+### Manual (in browser at http://localhost:5174)
+1. **Upload flow**: Attach a PDF in chat → submit → confirm file bytes arrive on server (check `vajra/uploads/`)
+2. **Streaming**: Type a prompt → watch response tokens appear word-by-word in the chat bubble
+3. **Follow-up memory**: Ask a follow-up → confirm the model references the prior turn in its answer
+4. **Pipeline ingest**: Upload a doc on the Pipeline page → click "Start Ingest" → confirm success toast + doc appears in ChromaDB list
+5. **Workspace ingest**: Enter a folder path → confirm the backend reads and indexes files from that folder
+6. **Permission modal**: Trigger a file-write action → confirm the approval modal appears and resolves correctly
+
+---
+
+## Implementation Order
+
+1. `backend/schemas.py` — add `HistoryMessage`, update `UserRequest`, add `IngestRequest`
+2. `backend/ingest.py` — new ChromaDB ingest module
+3. `backend/main.py` — add `/upload`, `/ingest`, update `/stream` + `/process` with history
+4. `agents/orchestrator.py` — accept `history` + `file_paths`
+5. `frontend/src/api.js` — add `uploadFiles`, `ingestDocuments`, `streamTask`
+6. `frontend/src/App.jsx` — wire `handleSubmit` to real upload + stream flow; wire pipeline ingest buttons

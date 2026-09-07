@@ -1,0 +1,153 @@
+# Chat Input — Claude-Style Upload Popover  
+
+## Overview
+
+Replace the single `Paperclip` button in the chat input bar with a `+` button that opens a floating popover menu with **3 distinct upload options** — exactly like Claude's UI. Each option opens the correct file picker or path input.
+
+---
+
+## Current State
+
+```
+[ 📎 ]  [ textarea ................................ ]  [ ➤ ]
+```
+Single `Paperclip` button directly opens a combined file picker (`accept` all types, `multiple`).
+
+---
+
+## Target State (Claude-style)
+
+```
+[ + ]  [ textarea .....................................]  [ ➤ ]
+  ↑
+  Opens popover ↓
+
+┌───────────────────────────────────────┐
+│  📄  Upload Files                      │
+│      CSV, PDF, DOCX, TXT, JSON…        │
+├───────────────────────────────────────┤
+│  🖼️  Upload Images                     │
+│      PNG, JPG, WEBP, GIF, SVG…         │
+├───────────────────────────────────────┤
+│  📁  Local Workspace                   │
+│      Enter or browse a folder path     │
+└───────────────────────────────────────┘
+```
+
+---
+
+## Popover Items — Detail
+
+| # | Label | Icon | Description | Behaviour |
+|---|---|---|---|---|
+| 1 | **Upload Files** | `FileText` | CSV, PDF, DOCX, TXT, JSON, Parquet, XLSX, MP3, WAV | Triggers hidden `<input type="file" multiple accept="docs+audio">` |
+| 2 | **Upload Images** | `Image` | PNG, JPG, WEBP, GIF, TIFF, SVG, BMP | Triggers hidden `<input type="file" multiple accept="image/*">` |
+| 3 | **Local Workspace** | `FolderOpen` | Enter or browse a folder path | Expands an inline path input row inside the popover (same UX as Pipeline page workspace) |
+
+---
+
+## Popover Behaviour
+
+- Opens **above** the `+` button (positioned with `bottom: calc(100% + 8px)`) so it never overlaps the chat input
+- Closes when:
+  - User clicks outside (global `mousedown` listener)
+  - User clicks an option (after triggering the picker)
+  - `Escape` key
+- **Local Workspace option** is special: clicking it does **not** close the popover immediately — instead it expands an inline text field + "Browse Folder" button inside the popover; once a path is set (user presses Enter or clicks away), the popover closes and a `workspace-chip` appears in the file chips row above the textarea
+- After selecting files via options 1 or 2, file chips appear in the `chat-files-row` above the textarea (existing behaviour, unchanged)
+
+---
+
+## New Component
+
+```jsx
+function AttachPopover({ onFiles, onWorkspacePath, onClose }) {
+  // Rendered inside the chat-input-form, positioned absolutely
+  // Contains 3 menu items + conditional workspace input row
+}
+```
+
+### Props:
+- `onFiles(files[])` — called when files selected from options 1 or 2
+- `onWorkspacePath(path)` — called when workspace path confirmed
+- `onClose()` — called to close the popover
+
+---
+
+## State Changes in `App`
+
+```js
+// New state (inside App, chat view)
+const [attachPopoverOpen, setAttachPopoverOpen] = useState(false);
+const [workspacePathChat, setWorkspacePathChat] = useState('');
+```
+
+Existing `attachedFiles[]` state remains unchanged — files from all 3 options are added to it.
+
+**Workspace path chip:** When a workspace path is confirmed, a special chip with `FolderOpen` icon + path text is added to `attachedFiles` as a synthetic object:
+```js
+{ name: path, size: 'Workspace', isWorkspace: true }
+```
+This shows in the `chat-files-row` and is passed to the API as the file path.
+
+---
+
+## New Hidden File Inputs
+
+Two separate hidden inputs (currently only one exists):
+
+```jsx
+<input ref={filePickerRef}  accept=".csv,.pdf,.docx,..." multiple />   {/* Documents */}
+<input ref={imagePickerRef} accept="image/*" multiple />               {/* Images */}
+```
+
+---
+
+## Folder Browse in Popover
+
+```jsx
+<input ref={folderPickerRef} type="file" webkitdirectory directory />
+```
+When the user selects a folder → first file's `webkitRelativePath` split to extract the folder name → set as workspace path.
+
+---
+
+## New CSS Classes
+
+| Class | Purpose |
+|---|---|
+| `.chat-attach-btn` | Change: now shows `+` icon instead of `Paperclip` |
+| `.attach-popover` | Floating popover container (above the `+` button) |
+| `.attach-popover-item` | Individual menu row (icon + label + description) |
+| `.attach-popover-item:hover` | Hover highlight (blue-tinted row) |
+| `.attach-popover-divider` | Thin horizontal line between options |
+| `.attach-popover-workspace` | Inline workspace path input section within popover |
+| `.workspace-chip` | Special chip for confirmed workspace path in file chips row |
+
+---
+
+## Files to Modify
+
+#### [MODIFY] [`App.jsx`](file:///c:/Users/HP/Downloads/vajra/frontend/src/App.jsx)
+- Add `attachPopoverOpen`, `workspacePathChat` state
+- Add `AttachPopover` component (inline or extracted)
+- Add `imagePickerRef`, `folderPickerRef` refs
+- Replace `Paperclip` + single `<input>` with `+` button + `AttachPopover` + 3 separate hidden inputs
+- Add outside-click + Escape-key close logic via `useEffect`
+
+#### [MODIFY] [`index.css`](file:///c:/Users/HP/Downloads/vajra/frontend/src/index.css)
+- Add `.attach-popover` and children styles
+- Update `.chat-attach-btn` to show `+`
+- Add `.workspace-chip` variant style
+
+---
+
+## Verification
+
+1. Click `+` → popover appears above the button with 3 options
+2. Click **Upload Files** → system file picker opens (docs/audio only); after selection, chips appear; popover closes
+3. Click **Upload Images** → system file picker opens (images only); after selection, chips with thumbnails appear; popover closes
+4. Click **Local Workspace** → workspace row expands inside popover; type or browse a path; press Enter → popover closes, workspace chip appears in file chips row
+5. Click anywhere outside popover → closes
+6. Press `Escape` → closes
+7. Submit with any combination of files + workspace path → all appear in the user bubble in the chat thread

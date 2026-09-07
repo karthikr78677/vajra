@@ -7,9 +7,22 @@ class TaskType(str, Enum):
     CODING = "CODING"
     VISION = "VISION"
 
+class HistoryMessage(BaseModel):
+    role: str = Field(description="'user' or 'assistant'")
+    content: str = Field(description="Message content")
+
 class UserRequest(BaseModel):
     query: str = Field(description="The natural language query from the user.")
-    file_paths: List[str] = Field(default_factory=list, description="Paths to uploaded files (PDFs, images, etc.)")
+    file_paths: List[str] = Field(default_factory=list, description="Absolute paths to uploaded files on the server.")
+    history: List[HistoryMessage] = Field(default_factory=list, description="Prior conversation turns for multi-turn context.")
+
+class IngestRequest(BaseModel):
+    file_paths: List[str] = Field(default_factory=list, description="Absolute server paths of uploaded files to index.")
+    document_ids: List[str] = Field(default_factory=list, description="Stable IDs returned by /upload.")
+    workspace_path: Optional[str] = Field(None, description="Local folder path to scan and index all supported files.")
+    domain: str = Field("General", description="Domain label for the indexed documents.")
+
+
 
 class TaskAnalysisResult(BaseModel):
     task_type: TaskType = Field(description="The classified task type.")

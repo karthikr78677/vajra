@@ -837,13 +837,25 @@ class AgentOrchestrator:
 
         return final, trace
 
-    async def run_async(self, query: str, task_type: TaskType) -> Tuple[str, List[AgentStep]]:
+    async def run_async(self, query: str, task_type: TaskType,
+                        history: list = None, file_paths: list = None) -> Tuple[str, List[AgentStep]]:
         """
         Main entry point. Routes tasks to their specialized handlers:
         - CODING  → run_coding_task_async  (multi-file pipeline / sandbox)
         - VISION  → run_vision_task_async  (direct tool call, no JSON loop)
         - REASONING → general JSON tool-calling loop
+
+        Args:
+            query: Current user message.
+            task_type: Classified task type.
+            history: List of prior {role, content} dicts for multi-turn context.
+            file_paths: Absolute paths of uploaded files to process.
         """
+        # Enrich query with file context if files were provided
+        if file_paths:
+            file_list = ", ".join(file_paths)
+            query = f"{query}\n\n[Attached files: {file_list}]"
+
         if task_type == TaskType.CODING:
             return await self.run_coding_task_async(query)
 
@@ -852,14 +864,20 @@ class AgentOrchestrator:
             return await self.run_vision_task_async(query)
 
         model_name = self.router.get_model_for_task(task_type)
-        logger.info(f"Orchestrator starting task '{query}' with model '{model_name}'")
+        logger.info(f"Orchestrator starting task '{query[:80]}...' with model '{model_name}'")
 
         sys_prompt = REASONING_SYSTEM_PROMPT
 
-        messages = [
-            {"role": "system", "content": sys_prompt},
-            {"role": "user", "content": query}
-        ]
+        # Build messages: system → history turns → current user query
+        messages = [{"role": "system", "content": sys_prompt}]
+
+        if history:
+            for h in history:
+                role = h.get("role", "user") if isinstance(h, dict) else h.role
+                content = h.get("content", "") if isinstance(h, dict) else h.content
+                messages.append({"role": role, "content": content})
+
+        messages.append({"role": "user", "content": query})
 
         trace = []
         action_history = []
@@ -909,3 +927,4 @@ class AgentOrchestrator:
                 messages.append({"role": "user", "content": "Error: Output was not valid JSON. Please extract only the JSON object."})
 
         return "Max retries reached without final answer.", trace
+

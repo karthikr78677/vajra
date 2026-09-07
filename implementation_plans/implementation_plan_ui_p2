@@ -1,0 +1,225 @@
+# Vajra Frontend — Phase 2 Implementation Plan
+
+## Overview
+
+Extend the Pipeline Page and Chat Page with smarter file handling, session navigation, and a proper multi-turn conversation model.
+
+---
+
+## Change 1 — Dynamic File-Type Accept Based on Selected Source Card
+
+**Where:** `PipelinePage` → Section 2 drop zone & hidden `<input type="file">`
+
+**Logic:**
+
+| Source Card Selected | `accept` attribute | `multiple` |
+|---|---|---|
+| `upload` (Local File) | `.csv,.pdf,.json,.docx,.xlsx,.txt,.parquet,.mp3,.wav,.ogg` | ✅ Yes |
+| `workspace` | *(no drop zone shown — path only)* | — |
+| `crm` | *(no drop zone — CRM connection UI)* | — |
+| `media` (Media & Diagrams) | `.png,.jpg,.jpeg,.webp,.gif,.bmp,.tiff,.svg,.pdf,.csv,.parquet,.json` | ✅ Yes (multiple images + datasets) |
+
+**Drop zone label/subtitle changes** dynamically per source card:
+
+- `upload` → *"Drop CSV, PDF, DOCX, JSON, Parquet, or Audio transcripts here"*
+- `media` → *"Drop images (PNG, JPG, WEBP, TIFF, SVG) or dataset files (CSV, Parquet, JSON) here"*
+
+**When `workspace` is active** → hide the drop zone entirely; show only the single local path input + an optional folder-browse button (`<input type="file" webkitdirectory>`).
+
+**When `crm` is active** → hide the drop zone; show a CRM config panel (already rendered, no changes).
+
+---
+
+## Change 2 — Uploaded File Preview in Drop Zone
+
+**Where:** `PipelinePage` — `uploadedFiles` local state (array of File objects)
+
+**Behaviour:**
+- After files are selected/dropped, the drop zone collapses to a compact state showing **file chips** (one chip per file):
+  - File icon (image thumbnail if image, document icon otherwise)
+  - Filename (truncated)
+  - File size
+  - `✕` remove button to discard individual files
+- A small `+ Add more` button lets the user add additional files
+- Files are **stored in component state** and passed upward to `App` as `pipelineFiles` so they carry to the chat
+
+**New state variable (in `PipelinePage`):**
+```js
+const [uploadedFiles, setUploadedFiles] = useState([]);
+```
+
+---
+
+## Change 3 — Local Workspace: Single Path, Write or Browse
+
+**Where:** `workspace` source card expanded area
+
+**Requirements:**
+- Only **one path** allowed (no multi-path)
+- Text input for manual typing (e.g. `C:\Users\HP\datasets\` or `/mnt/datasets/`)
+- A `📁 Browse Folder` button that triggers `<input type="file" webkitdirectory>` → user picks a folder → first folder path extracted from `e.target.files[0].webkitRelativePath`
+- Path displayed in the input box after selection
+- Drop zone is **hidden** when `workspace` is active (path-based, not file-based)
+
+---
+
+## Change 4 — Chat Sessions Panel on Pipeline Page
+
+**Where:** `PipelinePage` — new right-side panel or top section
+
+**Layout:** A collapsible **"Recent Sessions"** panel rendered on the right side of the pipeline page (or as a sticky column if space allows).
+
+**Content:**
+- Section header: `Recent Sessions` with a `+ New` button
+- List of past conversations (same `conversations` object from `App` state)
+- Each item shows:
+  - Chat icon + title (truncated to 28 chars)
+  - Timestamp / relative time
+  - Clickable → fires `onSelectConversation(chatId)` → navigates to `active` view
+
+**Props added to `PipelinePage`:**
+```js
+conversations,        // object
+onSelectConversation, // (chatId) => void
+onNewSession,         // () => void
+```
+
+**Layout change:** Pipeline shell changes to a two-column layout:
+- Left (flex: 1): existing pipeline content
+- Right (280px): sessions panel
+
+---
+
+## Change 5 — Uploaded Files Carry Over to Chat Input
+
+**Where:** `App` state + `PipelinePage` → `handleNavigateToChat`
+
+**New App state:**
+```js
+const [pipelineFiles, setPipelineFiles] = useState([]);
+```
+
+When the user clicks **"Test Query in Ask Vajra →"** or **"+ New"** in the sessions panel:
+1. `pipelineFiles` is passed into the chat as `attachedFiles` (upgraded from single `attachedFile` to an array `attachedFiles[]`)
+2. The chat input shows **file chips** for each carried-over file, exactly like the pipeline drop zone preview
+3. User types their prompt → submits → the file names are included in the API call
+
+**`handleNavigateToChat` in `App`:**
+```js
+const handleNavigateToChat = (files) => {
+  setAttachedFiles(files);   // carry over uploaded files
+  setCurrentView('active');
+};
+```
+
+---
+
+## Change 6 — Structured Multi-Turn Chat (Follow-up Questions)
+
+**Where:** Chat view (`active`) in `App.jsx`
+
+**Current problem:** `handleSubmit` always creates a **new** conversation. Follow-up inputs should **append** to the currently active conversation.
+
+**New conversation message model:**
+```js
+// Each conversation gets a `messages` array instead of a single `prose`
+messages: [
+  {
+    id: 'msg-1',
+    role: 'user',          // 'user' | 'assistant'
+    content: '...',        // string (user) or JSX (assistant)
+    files: [],             // attached files for this turn
+    nodes: [],             // agent trace nodes
+    deliverable: null,
+    timestamp: Date.now()
+  }
+]
+```
+
+**Chat rendering:**
+- Scrollable message thread, newest at bottom
+- **User turns**: right-aligned bubble with prompt text + file chip(s)
+- **Assistant turns**: left-aligned panel with:
+  - Agent process indicator (Plan → Act → Observe → Deliverable) — *only shown for that turn's nodes*
+  - Structured prose output (ReactMarkdown)
+  - Deliverable strip (if any file was generated)
+
+**Follow-up flow:**
+1. User types in the sticky bottom input → hits Enter/Send
+2. A new `user` message is appended to `activeChat.messages`
+3. API call is made (with previous messages context)
+4. A new `assistant` message is appended with the response
+
+**Backward compatibility:** Existing preset conversations (`CONVERSATIONS`) are migrated to the `messages[]` model on load.
+
+---
+
+## New CSS Classes Needed
+
+| Class | Purpose |
+|---|---|
+| `.pipeline-layout` | Two-column wrapper (content + sessions panel) |
+| `.sessions-panel` | Right side sticky panel |
+| `.session-item` | Individual chat session row in panel |
+| `.file-chip` | File preview chip in drop zone / chat input |
+| `.file-chip-img` | Thumbnail for image files |
+| `.chat-thread` | Scrollable message thread container |
+| `.chat-bubble-user` | Right-aligned user message bubble |
+| `.chat-bubble-assistant` | Left-aligned assistant message panel |
+| `.chat-input-bar` | Sticky bottom bar with file chips + textarea |
+| `.chat-files-row` | File chips row above textarea in input |
+
+---
+
+## Files to Modify
+
+#### [MODIFY] [`App.jsx`](file:///c:/Users/HP/Downloads/vajra/frontend/src/App.jsx)
+- Upgrade `attachedFile` → `attachedFiles[]` array
+- Add `pipelineFiles` state
+- Add `messages[]` model to conversations
+- Refactor `handleSubmit` to append messages to active conversation (follow-ups)
+- Update `PipelinePage` props: `conversations`, `onSelectConversation`, `onNewSession`, `onNavigateToChat(files)`
+- Refactor chat view to render `messages[]` thread
+- Add file carry-over logic from pipeline → chat input
+
+#### [MODIFY] [`index.css`](file:///c:/Users/HP/Downloads/vajra/frontend/src/index.css)
+- Add pipeline two-column layout styles
+- Add sessions panel styles
+- Add file chip styles (image thumbnail + document icon variant)
+- Add chat thread / bubble styles
+- Add sticky chat input bar styles
+
+---
+
+## Navigation Flow (After Changes)
+
+```
+Home Page
+  └── ▶ Play button
+        └── Pipeline Page [two-column]
+              ├── LEFT: Ingestion sources + upload + DB section
+              │     └── "Test Query in Ask Vajra →" 
+              │           → carries uploadedFiles → Chat (new session)
+              └── RIGHT: Sessions Panel
+                    └── Click session → Chat (existing session)
+                    └── "+ New" → Chat (blank new session)
+
+Chat Page [sidebar + thread]
+  ├── File chips in input bar (from pipeline)
+  ├── User types prompt → Send
+  ├── Assistant response (agent trace + prose + deliverable)
+  └── Follow-up input → appends next turn to same thread
+```
+
+---
+
+## Verification Plan
+
+1. Select **Upload Local File** → drop zone shows document formats only
+2. Select **Media & Diagrams** → drop zone shows image + dataset formats, multiple files allowed
+3. Select **Local Workspace** → drop zone hidden, single path input shown, Browse Folder works
+4. Upload files → chips appear in drop zone with remove buttons
+5. Click **"Test Query in Ask Vajra →"** → navigates to chat, file chips appear in the input bar
+6. Type prompt + submit → structured response with agent trace rendered
+7. Type follow-up in the same chat → appended as new turn below the first response
+8. Click a session in the **Sessions Panel** on Pipeline page → navigates directly to that chat

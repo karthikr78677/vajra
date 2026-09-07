@@ -1,0 +1,19 @@
+S.No | Team Name | TL Name | PS (10M) | QoPPT (10M) | QoReport (10M) | Total(30)
+1 | Cannon Crew | Jonathan Raj | 7 | 7 | 6 | 20
+2 | InertiaNav | Varshith  | 5 | 7 | 7 | 19
+3 | JANA SAHAI | T.Pavan kumar | 7 | 6 | 6 | 19
+4 | Spartans | A Sai Praveena  | 5 | 7 | 7 | 19
+5 | Ctrl Crew  | Harshadha Vasireddy | 6 | 6 | 6 | 18
+6 | APEX | Vengala Akhilan | 5 | 6 | 6 | 17
+7 | Aqua Sentinel | Kodimella Sravya | 5 | 6 | 6 | 17
+8 | Comment Lines | M. Bhumika | 5 | 7 | 5 | 17
+9 | Hidden minds | Ch.Sreeja | 6 | 6 | 5 | 17
+10 | MINEPULSE | M. Moses | 5 | 6 | 6 | 17
+11 | Meridian | Jhanya Velamati | 6 | 4.5 | 6 | 16.5
+12 | Algorithm Hunters  | Y. Lohith Mahesh  | 5 | 5 | 6 | 16
+13 | FARM FLOWS | DODDI VEERA VENKATA SATYA GANESH KUMAR | 6 | 5 | 5 | 16
+14 | HackForge | S.Navya | 6 | 5 | 5 | 16
+15 | HexaMinds | Aashritha Kota | 5 | 5 | 6 | 16
+16 | ISHOWCODE | K.SANTHOSH MAHADAEVAN | 5 | 6 | 5 | 16
+17 | MineGuard | P. Gowthami | 4 | 6 | 6 | 16
+18 | TechNauts | V Krishna Teja | 6 | 5 | 5 | 16

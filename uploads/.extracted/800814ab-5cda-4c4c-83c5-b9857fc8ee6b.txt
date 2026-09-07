@@ -1,0 +1,24 @@
+--- Page 1 ---
+DEPARTMENT Of CSE (AI&ML) 
+MOBILE COMPUTING PRA 
+Global System for Mobile Communications (GSM) 
+Name:-R.karthik 
+Rollno:-23P61A66E4 
+Faculty:-Mrs.K.Hari Priya 
+  
+ABSTRACT: 
+ 
+Global System for Mobile Communications (GSM) is a digital cellular 
+communication system widely used for mobile communication. It provides 
+reliable and secure services such as voice calls, SMS, fax, and data 
+communication. The GSM architecture consists of Mobile Station, Base Station 
+Subsystem, Network and Switching Subsystem, and Operations and Support 
+Subsystem. GSM uses FDMA and TDMA techniques to efficiently share radio 
+resources among users. It provides authentication and encryption for secure 
+communication. GSM also supports mobility through location management and 
+handover mechanisms. It allows users to communicate while moving between 
+different cells and network areas. GSM significantly improved the capacity, 
+quality, and security of mobile communication compared with earlier analog 
+systems. It became one of the most widely adopted 2G mobile communication 
+standards and laid the foundation for later technologies such as GPRS, EDGE, 
+and 3G.

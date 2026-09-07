@@ -74,6 +74,7 @@ async def analyze_task_async(request: UserRequest, router: ModelRouter) -> TaskA
     # ── Priority 4: Strong CODING keyword patterns ────────────────────────────
     coding_patterns = [
         r"\b(write|create|build|generate|make)\b.{0,30}(script|code|program|app|function|class|algorithm|calculator|game|tool|bot)\b",
+        r"\b(write|create|build|generate|make)\b.{0,40}\b(file|website|webpage|html|css|javascript|typescript|json|markdown)\b",
         r"\b(debug|fix|refactor|optimize)\b.{0,30}(code|script|error|bug|function)\b",
         r"\b(python|javascript|bash|powershell|typescript|c\+\+|java)\b.{0,30}\b(script|code|function|class)\b",
         r"\bwrite a python\b",
