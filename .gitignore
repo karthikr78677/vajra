@@ -1,6 +1,10 @@
-# ====================
-# Python
-# ====================
+# ============================================================
+# VAJRA — Comprehensive .gitignore
+# ============================================================
+
+# ============================================================
+# PYTHON BACKEND
+# ============================================================
 __pycache__/
 *.py[cod]
 *$py.class
@@ -9,100 +13,72 @@ __pycache__/
 *.so
 *.egg
 *.egg-info/
-dist/
 build/
+dist/
 .eggs/
 
-# ====================
 # Virtual Environments
-# ====================
 .venv/
 venv/
 env/
 ENV/
-.env
 
-# ====================
-# Environment & Secrets
-# ====================
+# uv lock (auto-generated, not needed in repo)
+uv.lock
+
+# Env / Secrets
 .env
 .env.local
 configs/.env
 *.secret
 
-# ====================
-# Dependency Lock Files (uv)
-# ====================
-uv.lock
-
-# ====================
-# Jupyter Notebooks
-# ====================
+# Jupyter
 .ipynb_checkpoints/
 *.ipynb
 
-# ====================
-# Data Directories (no real data in repo)
-# ====================
-data/sample_scanned_reports/*
-data/sample_images/*
-data/sample_sops/*
-# Keep the placeholder .gitkeep files
-!data/sample_scanned_reports/.gitkeep
-!data/sample_images/.gitkeep
-!data/sample_sops/.gitkeep
-
-# ====================
-# ChromaDB (Vector DB - local persistence)
-# ====================
-knowledge_base/chroma_db/
-*.chroma
-
-# ====================
-# Outputs & Generated Files
-# ====================
-outputs/
-*.docx
-*.xlsx
-*.pptx
-*.pdf
-*.log
-
-# ====================
-# OS Files
-# ====================
-.DS_Store
-Thumbs.db
-desktop.ini
-
-# ====================
-# IDE & Editor
-# ====================
-.vscode/
-.idea/
-*.swp
-*.swo
-*.suo
-
-# ====================
 # Testing & Coverage
-# ====================
 .pytest_cache/
 htmlcov/
 .coverage
 coverage.xml
 
-# ====================
-# Ollama model cache (never commit model weights)
-# ====================
-*.gguf
-*.bin
-*.safetensors
-models/*.gguf
+# ============================================================
+# FRONTEND (React / Node / Vite)
+# ============================================================
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.eslintcache
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-debug.log*
 
+# Vite build output
+frontend/.vite/
+dist/
+build/
 
+# ============================================================
+# DATA & GENERATED FILES
+# ============================================================
+data/sample_scanned_reports/*
+data/sample_images/*
+data/sample_sops/*
+# Keep placeholder files
+!data/sample_scanned_reports/.gitkeep
+!data/sample_images/.gitkeep
+!data/sample_sops/.gitkeep
 
-# Local M2 test inputs and generated extraction output
+outputs/
+scratch/
+tmp/
+test-data/
+
+# ============================================================
+# BINARY / MEDIA FILES
+# ============================================================
 *.pdf
 *.jpg
 *.jpeg
@@ -110,15 +86,40 @@ models/*.gguf
 *.tif
 *.tiff
 *.bmp
-*.txt
+*.docx
+*.xlsx
+*.pptx
+
+# AI Model weights — never commit
+*.gguf
+*.bin
+*.safetensors
+models/*.gguf
+
+# ============================================================
+# VECTOR DB (ChromaDB)
+# ============================================================
+knowledge_base/chroma_db/
+*.chroma
+
+# ============================================================
+# LOGS & TEMP
+# ============================================================
+*.log
 *.out
 
-# OCR and parser scratch directories
-scratch/
-tmp/
-test-data/
+# ============================================================
+# OS FILES
+# ============================================================
+.DS_Store
+Thumbs.db
+desktop.ini
 
-# Local logs and reports
-*.log
-coverage.xml
-.pytest_cache/
+# ============================================================
+# IDE & EDITOR
+# ============================================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*.suo
