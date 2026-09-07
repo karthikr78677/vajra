@@ -92,9 +92,7 @@ def execute_code(code: str, interpreter: str = "python", timeout: int = 10, cwd:
                 timeout=timeout,
                 cwd=cwd
             )
-        except FileNotFoundError as e:
-            # e.filename will be the directory if cwd was invalid on some OSes
-            # Or we can just check if the cwd exists
+        except FileNotFoundError:
             if cwd and not os.path.exists(cwd):
                 return f"Sandbox error: The working directory '{cwd}' does not exist. Please create it first."
             return f"Sandbox error: Interpreter '{interpreter}' not found. Ensure it is installed and in PATH."
